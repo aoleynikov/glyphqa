@@ -1,0 +1,243 @@
+#!/usr/bin/env python3
+
+import argparse
+import sys
+import logging
+from pathlib import Path
+from core.config import Config
+from core.models import Scenario
+from core.filesystem import FileSystem
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(message)s')
+logger = logging.getLogger(__name__)
+
+
+def load_command(scenarios_path: str = None):
+    """Load scenarios and convert them to .guide files with action lists."""
+    try:
+        config = Config('glyph.config.yml')
+        logger.info(f"Successfully loaded config from glyph.config.yml")
+        
+        filesystem = FileSystem()
+        
+        # Create .glyph/guides directory
+        guides_dir = '.glyph/guides'
+        filesystem.mkdir(guides_dir, parents=True, exist_ok=True)
+        logger.info(f"Created guides directory: {guides_dir}")
+        
+        # Load all scenarios from the specified directory
+        scenarios_dir = scenarios_path or 'scenarios'
+        if not filesystem.exists(scenarios_dir):
+            logger.error(f"Error: Scenarios directory '{scenarios_dir}' not found")
+            sys.exit(1)
+        if not filesystem.is_dir(scenarios_dir):
+            logger.error(f"Error: '{scenarios_dir}' is not a directory")
+            sys.exit(1)
+        
+        glyph_files = filesystem.glob(f"{scenarios_dir}/*.glyph")
+        if not glyph_files:
+            logger.warning(f"No .glyph files found in '{scenarios_dir}'")
+            return
+        
+        logger.info(f"Found {len(glyph_files)} .glyph files")
+        
+        # Step 1: Load all scenarios
+        all_scenarios = []
+        for glyph_file in glyph_files:
+            try:
+                scenario = Scenario.from_file(glyph_file, filesystem)
+                all_scenarios.append(scenario)
+                logger.info(f"Loaded scenario: {scenario.name}")
+            except Exception as e:
+                logger.error(f"❌ Failed to load {filesystem.get_name(glyph_file)}: {e}")
+        
+        if not all_scenarios:
+            logger.error("No scenarios could be loaded")
+            sys.exit(1)
+        
+        # Step 2: Generate summaries for all scenarios
+        logger.info("\n--- Generating scenario summaries ---")
+        scenario_summaries = {}
+        for scenario in all_scenarios:
+            try:
+                logger.info(f"Summarizing {scenario.name}...")
+                summary = scenario.summarize(config.llm)
+                scenario_summaries[scenario.name] = summary
+                logger.info(f"  Summary: {summary}")
+            except Exception as e:
+                logger.error(f"❌ Failed to summarize {scenario.name}: {e}")
+                # Use a fallback summary
+                scenario_summaries[scenario.name] = f"Scenario: {scenario.name}"
+        
+        # Step 3: Generate action lists using the summary dictionary
+        logger.info("\n--- Generating action lists ---")
+        successful_loads = 0
+        for scenario in all_scenarios:
+            try:
+                logger.info(f"\n--- Loading {scenario.name} ---")
+                
+                # Generate action list using LLM with scenario summaries context
+                logger.info("Generating action list...")
+                actions = scenario.list_actions(config.llm, scenario_summaries)
+                logger.info(f"Generated {len(actions)} actions")
+                
+                # Create guide object and save as JSON
+                from core.models import Guide
+                guide = Guide(
+                    name=scenario.name,
+                    original_scenario=f"{scenario.name}.glyph",
+                    actions=actions
+                )
+                
+                guide_file = f"{guides_dir}/{scenario.name}.guide"
+                guide.save(guide_file, filesystem)
+                
+                logger.info(f"✅ Saved guide: {guide_file}")
+                successful_loads += 1
+                
+            except Exception as e:
+                logger.error(f"❌ Failed to load {scenario.name}: {e}")
+        
+        # Summary
+        total_scenarios = len(all_scenarios)
+        if successful_loads == total_scenarios:
+            logger.info(f"\n🎉 Successfully loaded all {total_scenarios} scenarios!")
+        else:
+            logger.warning(f"\n⚠️  Loaded {successful_loads}/{total_scenarios} scenarios")
+            if successful_loads < total_scenarios:
+                sys.exit(1)
+                
+    except Exception as e:
+        logger.error(f"❌ Load failed: {e}")
+        sys.exit(1)
+
+
+def build_command(scenarios_path: str = None, scenario_file: str = None):
+    """Build Playwright tests from scenarios."""
+    try:
+        config = Config('glyph.config.yml')
+        target = config.get_target_instance()
+        logger.info(f"Initialized target: {target.name}")
+        
+        logger.info("Setting up test environment...")
+        target.init()
+        
+        filesystem = FileSystem()
+        
+        # Load all available scenarios
+        scenarios_dir = scenarios_path or 'scenarios'
+        if not filesystem.exists(scenarios_dir):
+            logger.error(f"Error: Scenarios directory '{scenarios_dir}' not found")
+            sys.exit(1)
+        if not filesystem.is_dir(scenarios_dir):
+            logger.error(f"Error: '{scenarios_dir}' is not a directory")
+            sys.exit(1)
+        
+        glyph_files = filesystem.glob(f"{scenarios_dir}/*.glyph")
+        if not glyph_files:
+            logger.warning(f"No .glyph files found in '{scenarios_dir}'")
+            return
+        
+        all_scenarios = []
+        for glyph_file in glyph_files:
+            try:
+                scenario = Scenario.from_file(glyph_file, filesystem)
+                all_scenarios.append(scenario)
+            except Exception as e:
+                logger.error(f"❌ Failed to load {filesystem.get_name(glyph_file)}: {e}")
+        
+        if not all_scenarios:
+            logger.error("No scenarios could be loaded")
+            sys.exit(1)
+        
+        # Filter scenarios based on scenario_file parameter
+        scenarios_to_build = []
+        if scenario_file:
+            target_scenario = None
+            for scenario in all_scenarios:
+                if scenario.name == filesystem.get_stem(scenario_file):
+                    target_scenario = scenario
+                    break
+            
+            if target_scenario:
+                scenarios_to_build = [target_scenario]
+                logger.info(f"Building single scenario: {target_scenario.name}")
+            else:
+                logger.error(f"Error: Scenario '{scenario_file}' not found in available scenarios")
+                logger.info(f"Available scenarios: {[s.name for s in all_scenarios]}")
+                sys.exit(1)
+        else:
+            scenarios_to_build = all_scenarios
+            logger.info(f"Building {len(scenarios_to_build)} scenarios from {scenarios_dir}")
+        
+        # Build the scenarios
+        successful_builds = 0
+        for scenario in scenarios_to_build:
+            try:
+                logger.info(f"\n--- Building {scenario.name} ---")
+                target.build_scenario(scenario)
+                logger.info(f"✅ Successfully built: {scenario.name}")
+                successful_builds += 1
+            except Exception as e:
+                logger.error(f"❌ Failed to build {scenario.name}: {e}")
+        
+        # Summary
+        total_scenarios = len(scenarios_to_build)
+        if successful_builds == total_scenarios:
+            logger.info(f"\n🎉 Successfully built all {total_scenarios} scenarios!")
+        else:
+            logger.warning(f"\n⚠️  Built {successful_builds}/{total_scenarios} scenarios")
+            if successful_builds < total_scenarios:
+                sys.exit(1)
+    except Exception as e:
+        logger.error(f"❌ Build failed: {e}")
+        sys.exit(1)
+
+
+def init_command():
+    """Initialize the GlyphQA project structure."""
+    try:
+        config = Config('glyph.config.yml')
+        target = config.get_target_instance()
+        logger.info(f"Initialized target: {target.name}")
+        
+        logger.info("Setting up test environment...")
+        target.init()
+        logger.info("✅ Project initialized successfully!")
+        
+    except Exception as e:
+        logger.error(f"❌ Initialization failed: {e}")
+        sys.exit(1)
+
+
+def main():
+    parser = argparse.ArgumentParser(description='GlyphQA - LLM-powered test automation framework')
+    subparsers = parser.add_subparsers(dest='command', help='Available commands')
+    
+    # Init command
+    init_parser = subparsers.add_parser('init', help='Initialize the project structure')
+    
+    # Load command
+    load_parser = subparsers.add_parser('load', help='Load scenarios and convert to .guide files')
+    load_parser.add_argument('--scenarios', help='Path to scenarios directory (default: scenarios/)')
+    
+    # Build command
+    build_parser = subparsers.add_parser('build', help='Build Playwright tests from scenarios')
+    build_parser.add_argument('--scenarios', help='Path to scenarios directory (default: scenarios/)')
+    build_parser.add_argument('--scenario', help='Build specific scenario file')
+    
+    args = parser.parse_args()
+    
+    if args.command == 'init':
+        init_command()
+    elif args.command == 'load':
+        load_command(args.scenarios)
+    elif args.command == 'build':
+        build_command(args.scenarios, args.scenario)
+    else:
+        parser.print_help()
+
+
+if __name__ == '__main__':
+    main()

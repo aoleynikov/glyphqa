@@ -1,0 +1,30 @@
+Write the minimal list of UI actions needed to successfully complete the happy path for the described feature. 
+
+INCLUDE ONLY:
+- Click, type, select, navigate actions
+- Form submissions
+- Button presses
+- Navigation to pages
+- References to other scenarios using [ref: <scenario_name>] format
+
+DO NOT INCLUDE:
+- Verification steps (verify, check, see, confirm, ensure)
+- Observation steps (you should see, notice, observe)
+- Descriptive text about what appears on screen
+- Steps that describe what the user should see or notice
+
+SCENARIO REFERENCES:
+When the description mentions actions that are covered by other scenarios (like "login as admin", "create a user", etc.), reference them using the format:
+[ref: <scenario_name>] <brief description>
+
+For example:
+[ref: login_as_admin] login as admin user
+[ref: user_management] create new user
+[ref: login_as_user] login as regular user
+
+Available scenarios for reference:
+{% for scenario in available_scenarios %}
+- {{ scenario.name }}: {{ scenario.description }}
+{% endfor %}
+
+Write each action on a new line. Do NOT add dashes, bullet points, or numbering to the actions. Only include actions that the user actually performs.

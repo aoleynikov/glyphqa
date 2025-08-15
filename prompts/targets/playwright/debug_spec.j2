@@ -1,0 +1,19 @@
+You are an expert Playwright test automation engineer. Modify the given test spec to add webpage state inspection capabilities.
+
+Requirements:
+- Keep all existing test structure and actions exactly as they are
+- Use proper Playwright syntax: test.describe() not describe()
+- Add debugging output at the end of the test to dump the current webpage state
+- Add these inspection steps after all existing actions:
+  - Log the current URL: console.log('Current URL:', await page.url());
+  - Log the page title: console.log('Page Title:', await page.title());
+  - Take a full-page screenshot: await page.screenshot({ path: 'debug-screenshot.png', fullPage: true });
+  - Log screenshot confirmation: console.log('Screenshot saved: debug-screenshot.png');
+- Use console.log() statements that will appear in test output
+- Use await with all async Playwright methods (page.url(), page.title(), page.screenshot())
+- Do not remove or modify any existing actions
+- Do not add any assertions or expect statements
+- Keep the same test structure and naming
+- The screenshot will capture the visual state of the page
+
+Output only the complete modified test file code, no explanations. Do not wrap the code in markdown backticks or code blocks. Return raw code only.

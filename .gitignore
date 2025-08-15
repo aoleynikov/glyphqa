@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+.glyph/
+*.pyc
+*.pyo
+*.pyd
+.coverage
+.pytest_cache/
+.DS_Store

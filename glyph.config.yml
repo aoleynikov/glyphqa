@@ -1,0 +1,6 @@
+target: playwright
+connection:
+  url: http://localhost:3000
+llm:
+  provider: openai
+  model: gpt-4o-mini
