@@ -1,21 +1,54 @@
-import React, { useState } from 'react';
-import { Card, Table, Button, Modal, Form, Badge } from 'react-bootstrap';
+import React, { useState, useEffect } from 'react';
+import { Card, Table, Button, Modal, Form, Badge, Alert } from 'react-bootstrap';
+
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
 
 const Users = () => {
     const [showModal, setShowModal] = useState(false);
-    const [users] = useState([
-        { id: 1, name: 'John Doe', email: 'john.doe@example.com', role: 'user', status: 'active' },
-        { id: 2, name: 'Jane Smith', email: 'jane.smith@example.com', role: 'admin', status: 'active' },
-        { id: 3, name: 'Bob Johnson', email: 'bob.johnson@example.com', role: 'user', status: 'inactive' },
-        { id: 4, name: 'Admin User', email: 'admin@test.com', role: 'administrator', status: 'active' },
-        { id: 5, name: 'Regular User', email: 'user@test.com', role: 'user', status: 'active' }
-    ]);
+    const [users, setUsers] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState('');
+    const [submitting, setSubmitting] = useState(false);
 
     const [newUser, setNewUser] = useState({
-        name: '',
+        username: '',
         email: '',
+        password: '',
         role: 'user'
     });
+
+    // Get current user token
+    const getAuthToken = () => {
+        const user = JSON.parse(localStorage.getItem('user') || '{}');
+        return user.token;
+    };
+
+    // Fetch users from API
+    const fetchUsers = async () => {
+        try {
+            const token = getAuthToken();
+            const response = await fetch(`${API_BASE_URL}/users`, {
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
+            });
+
+            if (response.ok) {
+                const data = await response.json();
+                setUsers(data);
+            } else {
+                setError('Failed to fetch users');
+            }
+        } catch (err) {
+            setError('Network error while fetching users');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        fetchUsers();
+    }, []);
 
     const handleInputChange = (e) => {
         setNewUser({
@@ -24,24 +57,48 @@ const Users = () => {
         });
     };
 
-    const handleSubmit = (e) => {
+    const handleSubmit = async (e) => {
         e.preventDefault();
-        setShowModal(false);
-        setNewUser({ name: '', email: '', role: 'user' });
+        setSubmitting(true);
+        setError('');
+
+        try {
+            const token = getAuthToken();
+            const response = await fetch(`${API_BASE_URL}/users`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify(newUser)
+            });
+
+            if (response.ok) {
+                setShowModal(false);
+                setNewUser({ username: '', email: '', password: '', role: 'user' });
+                fetchUsers(); // Refresh the list
+            } else {
+                const errorData = await response.json();
+                setError(errorData.detail || 'Failed to create user');
+            }
+        } catch (err) {
+            setError('Network error while creating user');
+        } finally {
+            setSubmitting(false);
+        }
     };
 
     const getRoleVariant = (role) => {
         switch (role) {
-            case 'administrator': return 'danger';
             case 'admin': return 'warning';
             case 'user': return 'primary';
             default: return 'secondary';
         }
     };
 
-    const getStatusVariant = (status) => {
-        return status === 'active' ? 'success' : 'secondary';
-    };
+    if (loading) {
+        return <div>Loading users...</div>;
+    }
 
     return (
         <div>
@@ -50,11 +107,16 @@ const Users = () => {
                 <Button
                     variant="primary"
                     onClick={() => setShowModal(true)}
-                   
                 >
                     Add New User
                 </Button>
             </div>
+
+            {error && (
+                <Alert variant="danger" className="mb-3">
+                    {error}
+                </Alert>
+            )}
 
             <Card>
                 <Card.Body>
@@ -62,10 +124,9 @@ const Users = () => {
                         <thead>
                             <tr>
                                 <th>ID</th>
-                                <th>Name</th>
+                                <th>Username</th>
                                 <th>Email</th>
                                 <th>Role</th>
-                                <th>Status</th>
                                 <th>Actions</th>
                             </tr>
                         </thead>
@@ -73,7 +134,7 @@ const Users = () => {
                             {users.map(user => (
                                 <tr key={user.id}>
                                     <td>{user.id}</td>
-                                    <td>{user.name}</td>
+                                    <td>{user.username}</td>
                                     <td>{user.email}</td>
                                     <td>
                                         <Badge bg={getRoleVariant(user.role)}>
@@ -81,23 +142,16 @@ const Users = () => {
                                         </Badge>
                                     </td>
                                     <td>
-                                        <Badge bg={getStatusVariant(user.status)}>
-                                            {user.status}
-                                        </Badge>
-                                    </td>
-                                    <td>
                                         <Button
                                             variant="outline-primary"
                                             size="sm"
                                             className="me-2"
-                                           
                                         >
                                             Edit
                                         </Button>
                                         <Button
                                             variant="outline-danger"
                                             size="sm"
-                                           
                                         >
                                             Delete
                                         </Button>
@@ -114,16 +168,21 @@ const Users = () => {
                     <Modal.Title>Add New User</Modal.Title>
                 </Modal.Header>
                 <Modal.Body>
+                    {error && (
+                        <Alert variant="danger" className="mb-3">
+                            {error}
+                        </Alert>
+                    )}
+                    
                     <Form onSubmit={handleSubmit}>
                         <Form.Group className="mb-3">
-                            <Form.Label>Full Name</Form.Label>
+                            <Form.Label>Username</Form.Label>
                             <Form.Control
                                 type="text"
-                                name="name"
-                                placeholder="Enter full name"
-                                value={newUser.name}
+                                name="username"
+                                placeholder="Enter username"
+                                value={newUser.username}
                                 onChange={handleInputChange}
-                               
                                 required
                             />
                         </Form.Group>
@@ -136,7 +195,18 @@ const Users = () => {
                                 placeholder="Enter email"
                                 value={newUser.email}
                                 onChange={handleInputChange}
-                               
+                                required
+                            />
+                        </Form.Group>
+
+                        <Form.Group className="mb-3">
+                            <Form.Label>Password</Form.Label>
+                            <Form.Control
+                                type="password"
+                                name="password"
+                                placeholder="Enter password"
+                                value={newUser.password}
+                                onChange={handleInputChange}
                                 required
                             />
                         </Form.Group>
@@ -147,16 +217,18 @@ const Users = () => {
                                 name="role"
                                 value={newUser.role}
                                 onChange={handleInputChange}
-                               
                             >
                                 <option value="user">User</option>
                                 <option value="admin">Admin</option>
-                                <option value="administrator">Administrator</option>
                             </Form.Select>
                         </Form.Group>
 
-                        <Button variant="primary" type="submit">
-                            Save User
+                        <Button 
+                            variant="primary" 
+                            type="submit"
+                            disabled={submitting}
+                        >
+                            {submitting ? 'Creating...' : 'Save User'}
                         </Button>
                     </Form>
                 </Modal.Body>

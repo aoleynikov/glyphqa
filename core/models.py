@@ -64,7 +64,19 @@ class Scenario:
         actions_text = llm_provider.generate(system_prompt, self.text)
         actions = [action.strip() for action in actions_text.split('\n') if action.strip()]
         
-        return actions
+        # Validate and fix any self-references that might have slipped through
+        validated_actions = []
+        for action in actions:
+            # Check if this action references the current scenario
+            if action.startswith(f'[ref: {self.name}]'):
+                # Remove the self-reference and keep just the description
+                action = action.replace(f'[ref: {self.name}]', '').strip()
+                if action:
+                    validated_actions.append(action)
+            else:
+                validated_actions.append(action)
+        
+        return validated_actions
     
     def summarize(self, llm_provider=None) -> str:
         """Generate a concise summary of the scenario for reference purposes."""

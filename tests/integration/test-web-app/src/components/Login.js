@@ -1,9 +1,11 @@
 import React, { useState } from 'react';
 import { Container, Card, Form, Button, Alert } from 'react-bootstrap';
 
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+
 const Login = ({ onLoginSuccess }) => {
     const [formData, setFormData] = useState({
-        email: '',
+        username: '',
         password: ''
     });
     const [error, setError] = useState('');
@@ -22,29 +24,48 @@ const Login = ({ onLoginSuccess }) => {
         setLoading(true);
         setError('');
 
-        // Hardcoded login logic
-        setTimeout(() => {
-            if (formData.email === 'admin' && formData.password === 'admin_password') {
-                const userData = {
-                    email: formData.email,
-                    name: 'Admin User',
-                    role: 'admin'
-                };
-                localStorage.setItem('user', JSON.stringify(userData));
-                onLoginSuccess(userData);
-            } else if (formData.email === 'user' && formData.password === 'password') {
-                const userData = {
-                    email: formData.email,
-                    name: 'Regular User',
-                    role: 'user'
-                };
-                localStorage.setItem('user', JSON.stringify(userData));
-                onLoginSuccess(userData);
+        try {
+            const response = await fetch(`${API_BASE_URL}/auth/login`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    username: formData.username,
+                    password: formData.password
+                })
+            });
+
+            if (response.ok) {
+                const data = await response.json();
+                
+                // Get user info
+                const userResponse = await fetch(`${API_BASE_URL}/users/me`, {
+                    headers: {
+                        'Authorization': `Bearer ${data.access_token}`
+                    }
+                });
+                
+                if (userResponse.ok) {
+                    const userData = await userResponse.json();
+                    const userInfo = {
+                        ...userData,
+                        token: data.access_token
+                    };
+                    localStorage.setItem('user', JSON.stringify(userInfo));
+                    onLoginSuccess(userInfo);
+                } else {
+                    setError('Failed to get user information');
+                }
             } else {
-                setError('Invalid credentials. Try admin/admin_password or user/password');
+                const errorData = await response.json();
+                setError(errorData.detail || 'Login failed');
             }
+        } catch (err) {
+            setError('Network error. Please check if the backend is running.');
+        } finally {
             setLoading(false);
-        }, 1000);
+        }
     };
 
     return (
@@ -65,11 +86,10 @@ const Login = ({ onLoginSuccess }) => {
                             <Form.Label>Username</Form.Label>
                             <Form.Control
                                 type="text"
-                                name="email"
+                                name="username"
                                 placeholder="Enter username"
-                                value={formData.email}
+                                value={formData.username}
                                 onChange={handleInputChange}
-                               
                                 required
                             />
                         </Form.Group>
@@ -82,7 +102,6 @@ const Login = ({ onLoginSuccess }) => {
                                 placeholder="Password"
                                 value={formData.password}
                                 onChange={handleInputChange}
-                               
                                 required
                             />
                         </Form.Group>
@@ -91,7 +110,6 @@ const Login = ({ onLoginSuccess }) => {
                             <Button
                                 variant="primary"
                                 type="submit"
-                               
                                 disabled={loading}
                             >
                                 {loading ? 'Logging in...' : 'Login'}

@@ -24,7 +24,6 @@ const Layout = ({ user, activeTab, onTabChange, onLogout, children }) => {
                                     key={tab.key}
                                     active={activeTab === tab.key}
                                     onClick={() => onTabChange(tab.key)}
-
                                     style={{ cursor: 'pointer' }}
                                 >
                                     {tab.label}
@@ -33,13 +32,12 @@ const Layout = ({ user, activeTab, onTabChange, onLogout, children }) => {
                         </Nav>
                         <Nav>
                             <Navbar.Text className="me-3">
-                                Welcome, <span>{user.name}</span>
+                                Welcome, <span>{user.username}</span>
                             </Navbar.Text>
                             <Button
                                 variant="outline-light"
                                 size="sm"
                                 onClick={onLogout}
-
                             >
                                 Logout
                             </Button>

@@ -26,7 +26,7 @@ const Dashboard = ({ user }) => {
             </div>
 
             <Alert variant="info">
-                Welcome back, {user.name}! Here's your system overview.
+                Welcome back, {user.username}! Here's your system overview.
             </Alert>
 
             <Row className="mb-4">

@@ -1,0 +1,7 @@
+log in as admin
+go to users and go to user creation
+fill in the fields with username, email, and password for the new user, role = user
+submit the form
+log out
+try to log in as this user
+you should not be able to see the user management and settings in the nav bar

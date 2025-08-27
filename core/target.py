@@ -35,13 +35,8 @@ class PlaywrightTarget(Target):
 
     
     def run_debug_spec(self, spec_content: str) -> str:
-        """Run a debug version of the spec and capture page state with screenshot."""
+        """Run a debug version of the spec and capture comprehensive page state."""
         debug_filepath = Path('.glyph/tests/debug.spec.js')
-        screenshot_path = Path('.glyph/debug-screenshot.png')
-        
-        # Remove old screenshot if it exists
-        if screenshot_path.exists():
-            screenshot_path.unlink()
         
         with open(debug_filepath, 'w') as f:
             f.write(spec_content)
@@ -55,25 +50,62 @@ class PlaywrightTarget(Target):
                 timeout=60
             )
             
-            # Extract URL and title from console output
+            # Extract URL, title, and page state from console output
             output_lines = result.stdout.split('\n')
             url = None
             title = None
+            page_state_json = None
             
             for line in output_lines:
                 if 'Current URL:' in line:
                     url = line.split('Current URL:')[1].strip()
                 elif 'Page Title:' in line:
                     title = line.split('Page Title:')[1].strip()
+                elif 'Page State:' in line:
+                    # Extract the JSON page state
+                    json_start = line.find('{')
+                    if json_start != -1:
+                        try:
+                            page_state_json = line[json_start:]
+                            # Try to parse to validate JSON
+                            import json
+                            json.loads(page_state_json)
+                        except json.JSONDecodeError:
+                            # If it's multiline JSON, try to reconstruct
+                            page_state_json = None
             
-            # Check if screenshot was created
-            screenshot_info = ""
-            if screenshot_path.exists():
-                screenshot_info = f"Screenshot captured: {screenshot_path}"
-            else:
-                screenshot_info = "Screenshot not found"
+            # If we didn't get the JSON in one line, try to reconstruct from multiple lines
+            if not page_state_json:
+                json_lines = []
+                in_json = False
+                for line in output_lines:
+                    if 'Page State:' in line:
+                        in_json = True
+                        json_start = line.find('{')
+                        if json_start != -1:
+                            json_lines.append(line[json_start:])
+                    elif in_json and line.strip():
+                        json_lines.append(line.strip())
+                        if line.strip().endswith('}'):
+                            break
+                
+                if json_lines:
+                    try:
+                        page_state_json = ''.join(json_lines)
+                        import json
+                        json.loads(page_state_json)  # Validate
+                    except json.JSONDecodeError:
+                        page_state_json = None
             
-            return f"Current URL: {url}\nPage Title: {title}\n{screenshot_info}\nTest Output: {result.stdout}"
+            # Build comprehensive page state output
+            page_dump = f"Current URL: {url}\nPage Title: {title}"
+            
+            if page_state_json:
+                page_dump += f"\n\nComprehensive Page State:\n{page_state_json}"
+            
+            page_dump += f"\n\nTest Output:\n{result.stdout}"
+            
+            return page_dump
             
         except subprocess.TimeoutExpired:
             return "Test timed out - page may not be accessible"
@@ -82,10 +114,10 @@ class PlaywrightTarget(Target):
     
 
 
-    def build_scenario(self, scenario):
+    def build_scenario(self, scenario, debug_stop=None):
         """Build Playwright test by delegating to ScenarioBuilder."""
         builder = ScenarioBuilder(self, self.config)
-        return builder.build_scenario(scenario)
+        return builder.build_scenario(scenario, debug_stop=debug_stop)
     
     def init(self):
         """Initialize Playwright test suite in .glyph folder."""
@@ -137,7 +169,7 @@ class PlaywrightTarget(Target):
         logger.info('  - Created package.json')
         
         # Create playwright.config.js
-        config_content = f'''const {{ defineConfig }} = require('@playwright/test');
+        config_content = f'''const {{ defineConfig, devices }} = require('@playwright/test');
 
 module.exports = defineConfig({{
   testDir: './tests',
@@ -145,7 +177,7 @@ module.exports = defineConfig({{
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
   workers: process.env.CI ? 1 : undefined,
-  reporter: 'html',
+  reporter: 'list',
   use: {{
     baseURL: '{self.config.connection.url}',
     trace: 'on-first-retry',

@@ -1,0 +1,55 @@
+services:
+  # MongoDB Database
+  mongodb:
+    image: mongo:7.0
+    container_name: test-mongodb
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      - test-network
+
+  # FastAPI Backend
+  backend:
+    build: ./test-backend
+    container_name: test-backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - SECRET_KEY=test-secret-key-change-in-production
+      - MONGODB_URL=mongodb://mongodb:27017/
+    depends_on:
+      - mongodb
+    networks:
+      - test-network
+    volumes:
+      - ./test-backend:/app
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+
+  # React Frontend
+  frontend:
+    build: ./test-web-app
+    container_name: test-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - REACT_APP_API_URL=http://localhost:8000
+    depends_on:
+      - backend
+    networks:
+      - test-network
+    volumes:
+      - ./test-web-app:/app
+      - /app/node_modules
+    command: npm start
+
+volumes:
+  mongodb_data:
+
+networks:
+  test-network:
+    driver: bridge

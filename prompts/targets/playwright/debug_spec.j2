@@ -1,19 +1,139 @@
-You are an expert Playwright test automation engineer. Modify the given test spec to add webpage state inspection capabilities.
+import { test, expect } from '@playwright/test';
 
-Requirements:
-- Keep all existing test structure and actions exactly as they are
-- Use proper Playwright syntax: test.describe() not describe()
-- Add debugging output at the end of the test to dump the current webpage state
-- Add these inspection steps after all existing actions:
-  - Log the current URL: console.log('Current URL:', await page.url());
-  - Log the page title: console.log('Page Title:', await page.title());
-  - Take a full-page screenshot: await page.screenshot({ path: 'debug-screenshot.png', fullPage: true });
-  - Log screenshot confirmation: console.log('Screenshot saved: debug-screenshot.png');
-- Use console.log() statements that will appear in test output
-- Use await with all async Playwright methods (page.url(), page.title(), page.screenshot())
-- Do not remove or modify any existing actions
-- Do not add any assertions or expect statements
-- Keep the same test structure and naming
-- The screenshot will capture the visual state of the page
-
-Output only the complete modified test file code, no explanations. Do not wrap the code in markdown backticks or code blocks. Return raw code only.
+test.describe('Debug Page State', () => {
+  test('Capture page state after actions', async ({ page }) => {
+    await page.goto('/');
+    
+    {{ implemented_actions }}
+    
+    // Capture comprehensive page state
+    const pageState = await page.evaluate(() => {
+      // Navigation history (last 5 items)
+      const history = [];
+      for (let i = 0; i < Math.min(5, window.history.length); i++) {
+        history.push(window.location.href);
+      }
+      
+      // All interactive elements with their attributes and values
+      const allElements = Array.from(document.querySelectorAll('input, select, textarea, button, a, label'));
+      const elements = allElements.map(el => ({
+        tag: el.tagName.toLowerCase(),
+        type: el.type || null,
+        name: el.name || null,
+        id: el.id || null,
+        placeholder: el.placeholder || null,
+        value: el.value || null,
+        ariaLabel: el.getAttribute && el.getAttribute('aria-label') || null,
+        textContent: el.textContent?.trim() || null,
+        href: el.href || null,
+        visible: el.offsetParent !== null,
+        enabled: !el.disabled,
+        // Generate reliable selectors
+        selectors: {
+          byName: el.name ? `[name="${el.name}"]` : null,
+          byId: el.id ? `#${el.id}` : null,
+          byPlaceholder: el.placeholder ? `[placeholder="${el.placeholder}"]` : null,
+          byAriaLabel: el.getAttribute && el.getAttribute('aria-label') ? `[aria-label="${el.getAttribute('aria-label')}"]` : null,
+          byText: el.textContent?.trim() ? `text="${el.textContent.trim()}"` : null,
+          byHref: el.href ? `a[href="${el.href}"]` : null
+        }
+      }));
+      
+      // Visible interactive elements
+      const visibleElements = elements.filter(el => el.visible && el.enabled);
+      
+      // Form structure
+      const forms = Array.from(document.querySelectorAll('form')).map(form => ({
+        id: form.id || null,
+        action: form.action || null,
+        method: form.method || null,
+        elements: Array.from(form.elements).map(el => ({
+          name: el.name || null,
+          type: el.type || null,
+          value: el.value || null,
+          placeholder: el.placeholder || null
+        }))
+      }));
+      
+      // Navigation elements (links, buttons that might be navigation)
+      const navigationElements = elements.filter(el => 
+        el.tag === 'a' || 
+        (el.tag === 'button' && el.textContent && el.textContent.toLowerCase().includes('nav')) ||
+        (el.textContent && ['dashboard', 'navigation', 'settings', 'logout', 'login'].some(nav => 
+          el.textContent.toLowerCase().includes(nav)
+        ))
+      );
+      
+      // Form elements specifically
+      const formElements = elements.filter(el => 
+        ['input', 'select', 'textarea', 'button'].includes(el.tag)
+      );
+      
+      // Comprehensive interaction report
+      const interactionReport = {
+        buttons: elements.filter(el => el.tag === 'button').map(el => ({
+          text: el.textContent,
+          type: el.type,
+          enabled: el.enabled,
+          visible: el.visible,
+          selectors: el.selectors
+        })),
+        inputs: elements.filter(el => el.tag === 'input').map(el => ({
+          type: el.type,
+          name: el.name,
+          placeholder: el.placeholder,
+          value: el.value,
+          enabled: el.enabled,
+          visible: el.visible,
+          selectors: el.selectors
+        })),
+        selects: elements.filter(el => el.tag === 'select').map(el => ({
+          name: el.name,
+          options: el.options ? Array.from(el.options).map(opt => ({ value: opt.value, text: opt.text })) : [],
+          enabled: el.enabled,
+          visible: el.visible,
+          selectors: el.selectors
+        })),
+        links: elements.filter(el => el.tag === 'a').map(el => ({
+          text: el.textContent,
+          href: el.href,
+          enabled: el.enabled,
+          visible: el.visible,
+          selectors: el.selectors
+        })),
+        labels: elements.filter(el => el.tag === 'label').map(el => ({
+          text: el.textContent,
+          for: el.getAttribute ? el.getAttribute('for') : null,
+          visible: el.visible,
+          selectors: el.selectors
+        }))
+      };
+      
+      return {
+        url: window.location.href,
+        title: document.title,
+        history: history,
+        elements: elements,
+        visibleElements: visibleElements,
+        navigationElements: navigationElements,
+        formElements: formElements,
+        forms: forms,
+        interactionReport: interactionReport,
+        elementCounts: {
+          total: elements.length,
+          visible: visibleElements.length,
+          forms: forms.length,
+          inputs: elements.filter(el => el.tag === 'input').length,
+          buttons: elements.filter(el => el.tag === 'button').length,
+          selects: elements.filter(el => el.tag === 'select').length,
+          links: elements.filter(el => el.tag === 'a').length,
+          labels: elements.filter(el => el.tag === 'label').length
+        }
+      };
+    });
+    
+    console.log('Current URL:', await page.url());
+    console.log('Page Title:', await page.title());
+    console.log('Page State:', JSON.stringify(pageState, null, 2));
+  });
+});

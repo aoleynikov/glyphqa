@@ -14,7 +14,13 @@ function App() {
     const savedUser = localStorage.getItem('user');
     if (savedUser) {
       try {
-        setUser(JSON.parse(savedUser));
+        const userData = JSON.parse(savedUser);
+        // Check if token exists and is not expired
+        if (userData.token) {
+          setUser(userData);
+        } else {
+          localStorage.removeItem('user');
+        }
       } catch (error) {
         localStorage.removeItem('user');
       }

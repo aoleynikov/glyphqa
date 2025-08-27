@@ -19,7 +19,7 @@ class FakeLLMProvider:
             # Debug spec generation (adds console.log statements)
             'console.log': 'import { test, expect } from "@playwright/test";\ntest("test", async ({ page }) => {\n  await page.goto("/");\n  console.log("Current URL:", await page.url());\n  console.log("Page Title:", await page.title());\n});',
             
-            # Enhanced spec responses for different actions
+            # Iteration spec responses for different actions
             'Fill email field with admin@example.com': 'import { test, expect } from "@playwright/test";\ntest("test", async ({ page }) => {\n  await page.goto("/");\n  await page.fill("input[type=\\"email\\"]", "admin@example.com");\n});',
             
             'Fill password field with admin123': 'import { test, expect } from "@playwright/test";\ntest("test", async ({ page }) => {\n  await page.goto("/");\n  await page.fill("input[type=\\"email\\"]", "admin@example.com");\n  await page.fill("input[type=\\"password\\"]", "admin123");\n});',
@@ -102,7 +102,7 @@ class TestScenarioBuilder:
             assert 'await page.click("button[type=\\"submit\\"]")' in result
             
             # Verify the LLM was called the expected number of times
-            # 1 initial + (3 actions * 2 calls each: debug + enhanced) = 7 total calls
+            # 1 initial + (3 actions * 2 calls each: debug + iteration) = 7 total calls
             assert len(self.fake_llm.get_call_history()) == 7
             
             # Verify the call sequence
@@ -123,14 +123,14 @@ class TestScenarioBuilder:
                 assert 'console.log' in debug_system_prompt
                 assert 'page.url()' in debug_system_prompt
             
-            # Enhanced spec calls (even indices: 2, 4, 6) - should use real enhanced template
-            enhanced_calls = [calls[2], calls[4], calls[6]]
-            for enhanced_call in enhanced_calls:
-                enhanced_system_prompt = enhanced_call['system_prompt']
-                assert 'CRITICAL DECISION LOGIC' in enhanced_system_prompt
-                assert 'current spec' in enhanced_system_prompt
+            # Iteration spec calls (even indices: 2, 4, 6) - should use real iteration template
+            iteration_calls = [calls[2], calls[4], calls[6]]
+            for iteration_call in iteration_calls:
+                iteration_system_prompt = iteration_call['system_prompt']
+                assert 'CRITICAL DECISION LOGIC' in iteration_system_prompt
+                assert 'current spec' in iteration_system_prompt
                 # The page_dump variable gets rendered, so we check for the actual content instead
-                assert 'Current URL: http://localhost:3000' in enhanced_system_prompt
+                assert 'Current URL: http://localhost:3000' in iteration_system_prompt
             
             # Verify action-specific user prompts
             assert calls[2]['user_prompt'] == 'Fill email field with admin@example.com'

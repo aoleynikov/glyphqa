@@ -13,7 +13,7 @@ logging.basicConfig(level=logging.INFO, format='%(message)s')
 logger = logging.getLogger(__name__)
 
 
-def load_command(scenarios_path: str = None):
+def load_command(scenarios_path: str = None, skip_setup: bool = False):
     """Load scenarios and convert them to .guide files with action lists."""
     try:
         config = Config('glyph.config.yml')
@@ -21,10 +21,13 @@ def load_command(scenarios_path: str = None):
         
         filesystem = FileSystem()
         
-        # Create .glyph/guides directory
-        guides_dir = '.glyph/guides'
-        filesystem.mkdir(guides_dir, parents=True, exist_ok=True)
-        logger.info(f"Created guides directory: {guides_dir}")
+        # Create .glyph/guides directory (skip if called from build process)
+        if not skip_setup:
+            guides_dir = '.glyph/guides'
+            filesystem.mkdir(guides_dir, parents=True, exist_ok=True)
+            logger.info(f"Created guides directory: {guides_dir}")
+        else:
+            guides_dir = '.glyph/guides'
         
         # Load all scenarios from the specified directory
         scenarios_dir = scenarios_path or 'scenarios'
@@ -113,7 +116,7 @@ def load_command(scenarios_path: str = None):
         sys.exit(1)
 
 
-def build_command(scenarios_path: str = None, scenario_file: str = None):
+def build_command(scenarios_path: str = None, scenario_file: str = None, debug_stop: int = None, purge: bool = False):
     """Build Playwright tests from scenarios."""
     try:
         config = Config('glyph.config.yml')
@@ -171,21 +174,106 @@ def build_command(scenarios_path: str = None, scenario_file: str = None):
             scenarios_to_build = all_scenarios
             logger.info(f"Building {len(scenarios_to_build)} scenarios from {scenarios_dir}")
         
-        # Build the scenarios
+        # Handle purge if requested
+        if purge:
+            logger.info("🧹 Purge requested - removing all cached knowledge")
+            from core.hash_caching import HashCachingSystem
+            caching_system = HashCachingSystem(Path('.glyph'))
+            caching_system.purge_cached_knowledge()
+            logger.info("✅ Purge completed - reloading guides for fresh build")
+            
+            # Reload guides after purge
+            logger.info("🔄 Reloading guides after purge...")
+            load_command(scenarios_path, skip_setup=True)
+        
+        # Build scenarios layer by layer using dependency graph with iterative knowledge building
         successful_builds = 0
-        for scenario in scenarios_to_build:
-            try:
-                logger.info(f"\n--- Building {scenario.name} ---")
-                target.build_scenario(scenario)
-                logger.info(f"✅ Successfully built: {scenario.name}")
-                successful_builds += 1
-            except Exception as e:
-                logger.error(f"❌ Failed to build {scenario.name}: {e}")
+        
+        # First, ensure we have guides loaded for dependency analysis
+        guides_dir = Path('.glyph/guides')
+        if not guides_dir.exists():
+            logger.error("No guides found. Run 'glyph load' first to create guides for dependency analysis.")
+            sys.exit(1)
+        
+        # Build scenario graph
+        from core.scenario_graph import ScenarioGraphBuilder
+        graph_builder = ScenarioGraphBuilder(guides_dir)
+        graph = graph_builder.build_graph_from_guides()
+        
+        # Get build layers (leaves to root)
+        build_layers = graph.get_build_layers()
+        logger.info(f"📊 Build layers identified: {len(build_layers)} layers")
+        
+        # Build scenarios layer by layer with iterative knowledge building
+        for layer_index, layer in enumerate(build_layers, 1):
+            logger.info(f"\n🏗️  Building Layer {layer_index}/{len(build_layers)} ({len(layer)} scenarios)")
+            logger.info(f"   Scenarios in this layer: {', '.join(layer)}")
+            
+            # When building a single scenario, build all its dependencies recursively
+            # When building all scenarios, only build scenarios in our target list
+            if len(scenarios_to_build) == 1:
+                # Single scenario build - only build the target scenario in this layer
+                layer_scenarios = [s for s in layer if s == scenarios_to_build[0].name]
+                if not layer_scenarios:
+                    logger.info(f"   ⏭️  Target scenario not in this layer, skipping...")
+                    continue
+                logger.info(f"   🎯 Building target scenario: {', '.join(layer_scenarios)}")
+            else:
+                # Full build - only build scenarios in our target list
+                layer_scenarios = [s for s in layer if s in [sc.name for sc in scenarios_to_build]]
+                if not layer_scenarios:
+                    logger.info(f"   ⏭️  No target scenarios in this layer, skipping...")
+                    continue
+                logger.info(f"   🎯 Building {len(layer_scenarios)} target scenarios: {', '.join(layer_scenarios)}")
+            
+            # Build all scenarios in this layer
+            for scenario_name in layer_scenarios:
+                try:
+                    # Find the scenario object (might be in all_scenarios, not just scenarios_to_build)
+                    scenario = next((s for s in all_scenarios if s.name == scenario_name), None)
+                    if not scenario:
+                        logger.error(f"❌ Scenario '{scenario_name}' not found in available scenarios")
+                        continue
+                    
+                    # For single scenario builds, recursively build dependencies first
+                    if len(scenarios_to_build) == 1:
+                        dependencies = graph.get_dependencies_for_scenario(scenario_name)
+                        for dep in dependencies:
+                            if not graph.nodes[dep].built:
+                                logger.info(f"🔗 Building dependency: {dep}")
+                                dep_scenario = next((s for s in all_scenarios if s.name == dep), None)
+                                if dep_scenario:
+                                    target.build_scenario(dep_scenario, debug_stop=debug_stop)
+                                    graph.mark_scenario_built(dep)
+                                    logger.info(f"✅ Built dependency: {dep}")
+                                else:
+                                    logger.error(f"❌ Dependency '{dep}' not found in available scenarios")
+                    
+                    logger.info(f"\n--- Building {scenario.name} (Layer {layer_index}) ---")
+                    target.build_scenario(scenario, debug_stop=debug_stop)
+                    logger.info(f"✅ Successfully built: {scenario.name}")
+                    successful_builds += 1
+                    
+                    # Mark as built in the graph
+                    graph.mark_scenario_built(scenario_name)
+                    
+                except Exception as e:
+                    logger.error(f"❌ Failed to build {scenario_name}: {e}")
+                    # Continue with other scenarios in the layer
+            
+            # After building this layer, reload guides with updated system knowledge
+            if layer_index < len(build_layers):
+                logger.info(f"\n🔄 Reloading guides with updated system knowledge after Layer {layer_index}...")
+                load_command(scenarios_path, skip_setup=True)
+                
+                # Rebuild the graph with updated guides
+                graph_builder = ScenarioGraphBuilder(guides_dir)
+                graph = graph_builder.build_graph_from_guides()
         
         # Summary
         total_scenarios = len(scenarios_to_build)
         if successful_builds == total_scenarios:
-            logger.info(f"\n🎉 Successfully built all {total_scenarios} scenarios!")
+            logger.info(f"\n🎉 Successfully built all {total_scenarios} scenarios in {len(build_layers)} layers!")
         else:
             logger.warning(f"\n⚠️  Built {successful_builds}/{total_scenarios} scenarios")
             if successful_builds < total_scenarios:
@@ -211,6 +299,31 @@ def init_command():
         sys.exit(1)
 
 
+def visualize_command(scenario_name: str = None, tree: bool = False):
+    """Visualize the scenario dependency graph."""
+    try:
+        from core.scenario_graph import ScenarioGraphBuilder
+        
+        guides_dir = Path('.glyph/guides')
+        if not guides_dir.exists():
+            logger.error("No guides found. Run 'glyph load' first.")
+            sys.exit(1)
+        
+        builder = ScenarioGraphBuilder(guides_dir)
+        graph = builder.build_graph_from_guides()
+        
+        if tree and scenario_name:
+            print(graph.visualize_dependency_tree(scenario_name))
+        elif scenario_name:
+            print(graph.visualize_graph(scenario_name))
+        else:
+            print(graph.visualize_graph())
+            
+    except Exception as e:
+        logger.error(f"❌ Visualization failed: {e}")
+        sys.exit(1)
+
+
 def main():
     parser = argparse.ArgumentParser(description='GlyphQA - LLM-powered test automation framework')
     subparsers = parser.add_subparsers(dest='command', help='Available commands')
@@ -226,6 +339,13 @@ def main():
     build_parser = subparsers.add_parser('build', help='Build Playwright tests from scenarios')
     build_parser.add_argument('--scenarios', help='Path to scenarios directory (default: scenarios/)')
     build_parser.add_argument('--scenario', help='Build specific scenario file')
+    build_parser.add_argument('--debug-stop', type=int, help='Stop at specific action number for debugging')
+    build_parser.add_argument('--purge', action='store_true', help='Remove all cached knowledge and start fresh')
+    
+    # Visualize command
+    visualize_parser = subparsers.add_parser('visualize', help='Visualize scenario dependency graph')
+    visualize_parser.add_argument('--scenario', help='Focus on specific scenario')
+    visualize_parser.add_argument('--tree', action='store_true', help='Show dependency tree instead of graph')
     
     args = parser.parse_args()
     
@@ -234,7 +354,9 @@ def main():
     elif args.command == 'load':
         load_command(args.scenarios)
     elif args.command == 'build':
-        build_command(args.scenarios, args.scenario)
+        build_command(args.scenarios, args.scenario, args.debug_stop, args.purge)
+    elif args.command == 'visualize':
+        visualize_command(args.scenario, args.tree)
     else:
         parser.print_help()
 
