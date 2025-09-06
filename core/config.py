@@ -3,8 +3,9 @@ import logging
 import os
 from pathlib import Path
 from typing import Any, Dict, Optional
-from .target import Target, PlaywrightTarget
-from .llm import create_llm_provider
+
+from .exceptions import ConfigurationError
+from .constants import Constants
 
 logger = logging.getLogger(__name__)
 
@@ -22,33 +23,33 @@ class Connection:
 
 
 class Config:
-    def __init__(self, filepath: str):
+    def __init__(self, filepath: str, filesystem=None):
         self.filepath = filepath
+        self.filesystem = filesystem
         self._load_config()
     
     def _load_config(self):
-        config_path = Path(self.filepath)
-        if not config_path.exists():
-            logger.error(f'Config file not found: {self.filepath}')
-            raise FileNotFoundError(f'Config file not found: {self.filepath}')
+        if not self.filesystem.exists(self.filepath):
+            logger.error(Constants.CONFIG_NOT_FOUND.format(self.filepath))
+            raise ConfigurationError(Constants.CONFIG_NOT_FOUND.format(self.filepath))
         
         try:
-            with open(config_path, 'r') as file:
-                config_data = yaml.safe_load(file)
+            config_content = self.filesystem.read_text(self.filepath)
+            config_data = yaml.safe_load(config_content)
         except yaml.YAMLError as e:
-            logger.error(f'Invalid YAML in config file {self.filepath}: {e}')
-            raise ValueError(f'Invalid YAML in config file {self.filepath}: {e}')
+            logger.error(Constants.INVALID_YAML.format(self.filepath, e))
+            raise ConfigurationError(Constants.INVALID_YAML.format(self.filepath, e))
         
         if not isinstance(config_data, dict):
-            logger.error(f'Config file must contain a YAML dictionary: {self.filepath}')
-            raise ValueError(f'Config file must contain a YAML dictionary: {self.filepath}')
+            logger.error(Constants.NOT_DICT_YAML.format(self.filepath))
+            raise ConfigurationError(Constants.NOT_DICT_YAML.format(self.filepath))
         
-        logger.info(f'Successfully loaded config from {self.filepath}')
+        logger.info(Constants.CONFIG_LOADED.format(self.filepath))
         
         for key, value in config_data.items():
             if key == 'llm' and isinstance(value, dict):
-                # Use the new LLM provider abstraction
-                setattr(self, key, create_llm_provider(value))
+                # Store LLM config for later provider creation via DI
+                setattr(self, key, value)
             elif key == 'connection' and isinstance(value, dict):
                 setattr(self, key, Connection(value))
             else:
@@ -57,18 +58,14 @@ class Config:
     def get(self, key: str, default: Any = None) -> Any:
         return getattr(self, key, default)
     
-    def get_target_instance(self) -> Target:
-        target_name = getattr(self, 'target', 'playwright')
-        if target_name == 'playwright':
-            return PlaywrightTarget(self)
-        else:
-            raise ValueError(f'Unknown target: {target_name}')
+    def get_target_instance(self):
+        """Get target instance - this should be handled by DI container now."""
+        raise NotImplementedError("get_target_instance should be handled by DI container")
     
     def to_prompt(self) -> str:
         prompt_parts = []
         
-        target_instance = self.get_target_instance()
-        prompt_parts.append(f"Target: {self.target} (v{target_instance.version})")
+        prompt_parts.append(f"Target: {getattr(self, 'target', 'playwright')}")
         
         if hasattr(self, 'connection'):
             prompt_parts.append(f"Application URL: {self.connection.url}")

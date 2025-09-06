@@ -25,11 +25,10 @@ class Guide:
             self.dependencies = []
 
 
-def calculate_glyph_hash(glyph_file_path: str) -> str:
+def calculate_glyph_hash(glyph_file_path: str, filesystem) -> str:
     """Calculate SHA256 hash of the glyph file content."""
     try:
-        with open(glyph_file_path, 'rb') as f:
-            content = f.read()
+        content = filesystem.read_text(glyph_file_path).encode('utf-8')
         return hashlib.sha256(content).hexdigest()
     except Exception as e:
         logger.error(f"Failed to calculate hash for {glyph_file_path}: {e}")
@@ -39,8 +38,9 @@ def calculate_glyph_hash(glyph_file_path: str) -> str:
 class HashCachingSystem:
     """Manages hash-based caching for scenario building."""
     
-    def __init__(self, glyph_dir: Path):
+    def __init__(self, glyph_dir: Path, filesystem=None):
         self.glyph_dir = Path(glyph_dir)
+        self.filesystem = filesystem
         self.guides_dir = self.glyph_dir / "guides"
         self.guides_dir.mkdir(parents=True, exist_ok=True)
     
@@ -60,14 +60,14 @@ class HashCachingSystem:
         
         # Load existing guide
         try:
-            with open(guide_file, 'r') as f:
-                guide_data = json.load(f)
+            guide_content = self.filesystem.read_text(str(guide_file))
+            guide_data = json.loads(guide_content)
         except Exception as e:
             logger.warning(f"Failed to load guide for {scenario_name}: {e}")
             return True
         
         # Calculate current hash
-        current_hash = calculate_glyph_hash(glyph_file_path)
+        current_hash = calculate_glyph_hash(glyph_file_path, self.filesystem)
         stored_hash = guide_data.get('glyph_hash', '')
         
         if not current_hash:
@@ -96,8 +96,8 @@ class HashCachingSystem:
         }
         
         try:
-            with open(guide_file, 'w') as f:
-                json.dump(guide_data, f, indent=2)
+            json_content = json.dumps(guide_data, indent=2)
+            self.filesystem.write_text(str(guide_file), json_content)
             logger.debug(f"Saved guide for {guide.scenario_name}")
         except Exception as e:
             logger.error(f"Failed to save guide for {guide.scenario_name}: {e}")
@@ -110,8 +110,8 @@ class HashCachingSystem:
             return None
         
         try:
-            with open(guide_file, 'r') as f:
-                data = json.load(f)
+            guide_content = self.filesystem.read_text(str(guide_file))
+            data = json.loads(guide_content)
             
             return Guide(
                 scenario_name=data['scenario_name'],
@@ -124,79 +124,35 @@ class HashCachingSystem:
             logger.error(f"Failed to load guide for {scenario_name}: {e}")
             return None
     
-    def build_scenario_with_caching(self, scenario_name: str, glyph_file_path: str, force: bool = False) -> str:
+    def build_scenario_with_caching(self, scenario_name: str, glyph_file_path: str, force: bool = False, builder_callback=None) -> str:
         """Build scenario with caching, returning test function code."""
         
         # Check if rebuild is needed
         if self.should_rebuild_guide(scenario_name, glyph_file_path, force):
             logger.info(f"🔨 Building: {scenario_name}")
             
-            # Build the guide (this would be the actual guide building logic)
-            guide = self._build_guide(scenario_name, glyph_file_path)
-            
-            # Build the test function
-            test_function = self._build_test_function(scenario_name, guide)
-            
-            # Run and learn (this would be the actual test execution)
-            self._run_and_learn(test_function)
-            
-            # Save the guide
-            self.save_guide(guide)
-            
-            logger.info(f"✅ Built and learned: {scenario_name}")
-            return test_function
+            # Delegate actual building to the provided callback
+            if builder_callback:
+                guide = builder_callback(scenario_name, glyph_file_path)
+                self.save_guide(guide)
+                logger.info(f"✅ Built and cached: {scenario_name}")
+                return guide
+            else:
+                logger.warning(f"No builder callback provided for {scenario_name}")
+                return None
         else:
-            # Load existing guide and test function
+            # Load existing guide
             guide = self.load_guide(scenario_name)
             if guide:
-                test_function = self._load_existing_test_function(scenario_name)
                 logger.info(f"📖 Using cached: {scenario_name}")
-                return test_function
+                return guide
             else:
                 logger.warning(f"Cache check passed but guide not found for {scenario_name}, rebuilding...")
-                return self.build_scenario_with_caching(scenario_name, glyph_file_path, force=True)
+                return self.build_scenario_with_caching(scenario_name, glyph_file_path, force=True, builder_callback=builder_callback)
     
-    def _build_guide(self, scenario_name: str, glyph_file_path: str) -> Guide:
-        """Build a guide from a glyph file."""
-        # This is a placeholder - in real implementation, this would parse the glyph file
-        # and generate the action list
-        current_hash = calculate_glyph_hash(glyph_file_path)
-        
-        # Mock guide building - in real implementation, this would parse the .glyph file
-        actions = [
-            "navigate to login page",
-            "type admin as username",
-            "type admin_password as password",
-            "click login button"
-        ]
-        
-        return Guide(
-            scenario_name=scenario_name,
-            actions=actions,
-            glyph_hash=current_hash,
-            built_at=datetime.now().isoformat(),
-            dependencies=[]
-        )
+
     
-    def _build_test_function(self, scenario_name: str, guide: Guide) -> str:
-        """Build a test function from a guide."""
-        # This is a placeholder - in real implementation, this would generate
-        # actual Playwright test function code
-        return f"// Test function for {scenario_name}"
-    
-    def _run_and_learn(self, test_function: str):
-        """Run test and learn from results."""
-        # This is a placeholder - in real implementation, this would execute
-        # the test and update glyph.md with learned information
-        logger.debug(f"Running and learning from test function")
-    
-    def _load_existing_test_function(self, scenario_name: str) -> str:
-        """Load existing test function from cache."""
-        # This is a placeholder - in real implementation, this would load
-        # the cached test function code
-        return f"// Cached test function for {scenario_name}"
-    
-    def purge_cached_knowledge(self):
+    def purge_cached_knowledge(self, system_state_manager):
         """Purge all cached knowledge by removing all guides and glyph.md."""
         logger.info("🧹 Purging all cached knowledge")
         
@@ -207,35 +163,13 @@ class HashCachingSystem:
                 guide_file.unlink()
                 logger.debug(f"Removed guide: {guide_file}")
         
-        # Reset glyph.md to initial state
-        glyph_md_file = self.glyph_dir / "glyph.md"
-        if glyph_md_file.exists():
-            glyph_md_file.unlink()
-            logger.debug(f"Removed glyph.md: {glyph_md_file}")
+        # Reset glyph.md to initial state using SystemStateManager
+        system_state_manager.reset_to_initial()
+        logger.debug(f"Reset glyph.md using SystemStateManager")
         
-        # Create fresh glyph.md with initial structure
-        initial_glyph_content = """# GlyphQA System Catalog
-*Last updated: {datetime}*
-
-## System Insights
-
-## Pages Discovered
-
-## Site Map
-
-## Known Selectors
-
-## Build Layers
-
-## Common Failures & Solutions
-"""
-        
-        glyph_md_file.write_text(initial_glyph_content.format(
-            datetime=datetime.now().isoformat()
-        ))
         logger.info("✅ Purge completed - system ready for fresh learning")
     
-    def build_scenario_with_purge(self, scenario_name: str, glyph_file_path: str) -> str:
+    def build_scenario_with_purge(self, scenario_name: str, glyph_file_path: str, builder_callback=None) -> str:
         """Build scenario with purge - removes all cached knowledge first."""
         logger.info(f"🔄 Purge build for {scenario_name}")
         
@@ -243,4 +177,4 @@ class HashCachingSystem:
         self.purge_cached_knowledge()
         
         # Now build with no preexisting knowledge
-        return self.build_scenario_with_caching(scenario_name, glyph_file_path, force=False)
+        return self.build_scenario_with_caching(scenario_name, glyph_file_path, force=False, builder_callback=builder_callback)

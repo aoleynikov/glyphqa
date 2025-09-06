@@ -35,7 +35,8 @@ llm:
             os.unlink(temp_path)
     
     def test_config_raises_filenotfound_for_missing_file(self):
-        with pytest.raises(FileNotFoundError, match='Config file not found'):
+        from core.exceptions import ConfigurationError
+        with pytest.raises(ConfigurationError, match='Config file not found'):
             Config('/nonexistent/path/config.yml')
     
     def test_config_raises_valueerror_for_invalid_yaml(self):
@@ -48,7 +49,8 @@ invalid: yaml: content: [
             temp_path = f.name
         
         try:
-            with pytest.raises(ValueError, match='Invalid YAML'):
+            from core.exceptions import ConfigurationError
+            with pytest.raises(ConfigurationError, match='Invalid YAML'):
                 Config(temp_path)
         finally:
             os.unlink(temp_path)
@@ -64,7 +66,8 @@ invalid: yaml: content: [
             temp_path = f.name
         
         try:
-            with pytest.raises(ValueError, match='Config file must contain a YAML dictionary'):
+            from core.exceptions import ConfigurationError
+            with pytest.raises(ConfigurationError, match='Config file must contain a YAML dictionary'):
                 Config(temp_path)
         finally:
             os.unlink(temp_path)

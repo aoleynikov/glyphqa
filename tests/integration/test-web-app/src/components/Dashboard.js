@@ -1,7 +1,7 @@
 import React from 'react';
 import { Row, Col, Card, Alert, Badge } from 'react-bootstrap';
 
-const Dashboard = ({ user }) => {
+const Dashboard = ({ user, onTabChange }) => {
     const stats = [
         { title: 'Total Users', value: '1,234', variant: 'primary', },
         { title: 'Active Sessions', value: '89', variant: 'success', },
@@ -73,7 +73,10 @@ const Dashboard = ({ user }) => {
                         </Card.Header>
                         <Card.Body>
                             <div className="d-grid gap-2">
-                                <button className="btn btn-primary">
+                                <button
+                                    className="btn btn-primary"
+                                    onClick={() => onTabChange && onTabChange('users')}
+                                >
                                     Create New User
                                 </button>
                                 <button className="btn btn-outline-secondary">

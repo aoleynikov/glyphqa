@@ -1,0 +1,14 @@
+{% if insight_type == 'new_page' %}
+    {% include 'system_state/page_insight.j2' %}
+{% elif insight_type == 'new_selector' %}
+    {% include 'system_state/selector_insight.j2' %}
+{% elif insight_type == 'navigation_pattern' %}
+    {% include 'system_state/navigation_insight.j2' %}
+{% elif insight_type == 'form_pattern' %}
+    {% include 'system_state/form_pattern_insight.j2' %}
+{% elif insight_type == 'interaction_pattern' %}
+    {% include 'system_state/interaction_pattern_insight.j2' %}
+{% else %}
+    ### Unknown Insight Type: {{ insight_type }}
+    **Context:** {{ action }}
+{% endif %}

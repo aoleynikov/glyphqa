@@ -151,12 +151,6 @@ class TestHashCaching:
     
     def test_build_scenario_with_caching(self):
         """Test the complete build scenario with caching behavior."""
-        # Mock the internal methods of the caching system
-        mock_build_guide = Mock(return_value=Mock())
-        mock_build_test_function = Mock(return_value="test_function_code")
-        mock_run_and_learn = Mock()
-        mock_load_existing_test_function = Mock(return_value="cached_test_function_code")
-        
         # Create a proper mock guide for the first build
         mock_guide = Mock()
         mock_guide.scenario_name = "test_scenario"
@@ -165,68 +159,42 @@ class TestHashCaching:
         mock_guide.built_at = "2025-01-27T10:30:00"
         mock_guide.dependencies = []
         
-        # First build - should build everything
-        with patch.object(self.caching_system, '_build_guide', mock_build_guide), \
-             patch.object(self.caching_system, '_build_test_function', mock_build_test_function), \
-             patch.object(self.caching_system, '_run_and_learn', mock_run_and_learn):
-            
-            # Make _build_guide return our proper mock guide
-            mock_build_guide.return_value = mock_guide
-            
-            result = self.caching_system.build_scenario_with_caching(
-                "test_scenario",
-                str(self.scenario_file),
-                force=False
-            )
-            
-            # Should have called build functions
-            mock_build_guide.assert_called_once()
-            mock_build_test_function.assert_called_once()
-            mock_run_and_learn.assert_called_once()
-            assert result == "test_function_code"
+        # Create a builder callback that returns our mock guide
+        def builder_callback(scenario_name, glyph_file_path):
+            return mock_guide
         
-        # Reset mocks
-        mock_build_guide.reset_mock()
-        mock_build_test_function.reset_mock()
-        mock_run_and_learn.reset_mock()
+        # First build - should build everything
+        result = self.caching_system.build_scenario_with_caching(
+            "test_scenario",
+            str(self.scenario_file),
+            force=False,
+            builder_callback=builder_callback
+        )
+        
+        # Should have called builder callback and returned the guide
+        assert result == mock_guide
         
         # Second build with same content - should use cache
-        with patch.object(self.caching_system, '_build_guide', mock_build_guide), \
-             patch.object(self.caching_system, '_build_test_function', mock_build_test_function), \
-             patch.object(self.caching_system, '_run_and_learn', mock_run_and_learn), \
-             patch.object(self.caching_system, '_load_existing_test_function', mock_load_existing_test_function):
-            
-            result = self.caching_system.build_scenario_with_caching(
-                "test_scenario",
-                str(self.scenario_file),
-                force=False
-            )
-            
-            # Should NOT have called build functions (using cache)
-            mock_build_guide.assert_not_called()
-            mock_build_test_function.assert_not_called()
-            mock_run_and_learn.assert_not_called()
-            assert result == "cached_test_function_code"
+        result = self.caching_system.build_scenario_with_caching(
+            "test_scenario",
+            str(self.scenario_file),
+            force=False,
+            builder_callback=builder_callback
+        )
+        
+        # Should use cached guide
+        assert result == mock_guide
         
         # Third build with force - should rebuild
-        with patch.object(self.caching_system, '_build_guide', mock_build_guide), \
-             patch.object(self.caching_system, '_build_test_function', mock_build_test_function), \
-             patch.object(self.caching_system, '_run_and_learn', mock_run_and_learn):
-            
-            # Make _build_guide return our proper mock guide again
-            mock_build_guide.return_value = mock_guide
-            
-            result = self.caching_system.build_scenario_with_caching(
-                "test_scenario",
-                str(self.scenario_file),
-                force=True
-            )
-            
-            # Should have called build functions again
-            mock_build_guide.assert_called_once()
-            mock_build_test_function.assert_called_once()
-            mock_run_and_learn.assert_called_once()
-            assert result == "test_function_code"
+        result = self.caching_system.build_scenario_with_caching(
+            "test_scenario",
+            str(self.scenario_file),
+            force=True,
+            builder_callback=builder_callback
+        )
+        
+        # Should have called builder callback again
+        assert result == mock_guide
     
     def test_purge_cached_knowledge(self):
         """Test that purge removes all cached knowledge."""

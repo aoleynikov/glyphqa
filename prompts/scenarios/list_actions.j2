@@ -23,10 +23,15 @@ FORM FILLING PATTERN - GROUP RELATED FIELDS:
   - "fill {title: New Post, content: Post content} in post form"
 
 IMPORTANT - USE GENERIC DESCRIPTIONS:
-- Instead of "click \"Add New User\"", use "click the create user button" or "navigate to user creation"
-- Instead of "click \"Submit\"", use "submit the form" or "click the submit button"
-- Instead of "click \"Login\"", use "click the login button" or "submit login form"
+- Instead of "click \"Add New User\"", use "navigate to user creation UI" or "open user creation modal"
+- Instead of "click \"Submit\"", use "submit the form" or "submit the user creation form"
+- Instead of "click \"Login\"", use "submit login form" or "click the login button"
 - Use generic terms that describe the action's purpose, not specific UI text
+
+MODAL AND FORM ACTIONS:
+- For opening modals: use "navigate to [feature] UI" or "open [feature] modal"
+- For submitting forms inside modals: use "submit the [feature] form" or "submit the form"
+- Distinguish between opening a modal and submitting a form - these are different actions
 
 SCENARIO REFERENCES:
 When the description mentions actions that are covered by other scenarios (like "login as administrator", "create a user", etc.), reference them using the format:

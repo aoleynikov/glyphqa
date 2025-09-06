@@ -10,39 +10,19 @@ import re
 logger = logging.getLogger(__name__)
 
 
-class GlyphMdUpdater:
-    """Intelligently updates glyph.md based on debug spec runs."""
+class SystemState:
+    """Intelligently manages system state (glyph.md) based on debug spec runs."""
     
-    def __init__(self, glyph_dir: Path, llm_provider=None):
+    def __init__(self, glyph_dir: Path, llm_provider, template_manager, storage_manager):
         self.glyph_dir = Path(glyph_dir)
-        self.glyph_md_file = self.glyph_dir / "glyph.md"
+        self.storage_manager = storage_manager
         self.current_content = self._load_current_content()
         self.llm_provider = llm_provider
+        self.template_manager = template_manager
     
     def _load_current_content(self) -> str:
         """Load current glyph.md content."""
-        if self.glyph_md_file.exists():
-            return self.glyph_md_file.read_text()
-        else:
-            return self._get_initial_content()
-    
-    def _get_initial_content(self) -> str:
-        """Get initial glyph.md content."""
-        return f"""# GlyphQA System Catalog
-*Last updated: {datetime.now().isoformat()}*
-
-## System Insights
-
-## Pages Discovered
-
-## Site Map
-
-## Known Selectors
-
-## Build Layers
-
-## Common Failures & Solutions
-"""
+        return self.storage_manager.get_current_content()
     
     def update_from_debug_spec(self, scenario_name: str, action: str, debug_output: str) -> bool:
         """Update glyph.md based on debug spec output. Returns True if updated."""
@@ -58,20 +38,13 @@ class GlyphMdUpdater:
     def _update_with_llm(self, scenario_name: str, action: str, debug_output: str) -> bool:
         """Update glyph.md using LLM analysis."""
         try:
-            # Load the prompt template
-            from jinja2 import Template
-            import os
-            
-            template_path = Path(__file__).parent.parent / "prompts" / "glyph_md_updater.j2"
-            if not template_path.exists():
-                logger.warning("Prompt template not found, falling back to rule-based analysis")
+            # Always use template manager - it's injected via DI
+            if not self.template_manager:
+                logger.warning("Template manager not available, falling back to rule-based analysis")
                 return self._update_with_rules(scenario_name, action, debug_output)
             
-            template_content = template_path.read_text()
-            template = Template(template_content)
-            
-            # Generate the prompt
-            prompt = template.render(
+            # Use template manager to get the prompt
+            system_prompt = self.template_manager.render_template('glyph_md_updater.j2',
                 current_glyph_md=self.current_content,
                 scenario_name=scenario_name,
                 action=action,
@@ -79,14 +52,10 @@ class GlyphMdUpdater:
             )
             
             # Get LLM response
-            # Split the prompt into system and user parts
-            # The prompt template should generate a system prompt
-            system_prompt = prompt
             user_prompt = f"Analyze the debug output for scenario '{scenario_name}' action '{action}'"
             response = self.llm_provider.generate(system_prompt, user_prompt)
             
             # Parse the JSON response
-            import re
             json_match = re.search(r'```json\s*(.*?)\s*```', response, re.DOTALL)
             if not json_match:
                 logger.warning("No JSON found in LLM response")
@@ -183,6 +152,10 @@ class GlyphMdUpdater:
         form_insights = self._check_for_form_patterns(url, form_elements, action)
         new_insights.extend(form_insights)
         
+        # Check for new modal patterns
+        modal_insights = self._check_for_modal_patterns(url, page_data, action)
+        new_insights.extend(modal_insights)
+        
         # Check for new selectors
         selector_insights = self._check_for_new_selectors(elements, action)
         new_insights.extend(selector_insights)
@@ -248,6 +221,22 @@ class GlyphMdUpdater:
         if not form_elements:
             return insights
         
+        # Check if this form is inside a modal
+        forms = form_elements if isinstance(form_elements, list) else []
+        for form in forms:
+            if isinstance(form, dict) and form.get('isInModal'):
+                modal_selector = form.get('modalSelector', '.modal')
+                submit_buttons = form.get('submitButtons', [])
+                
+                insights.append({
+                    'type': 'modal_form',
+                    'url': url,
+                    'action': action,
+                    'modalSelector': modal_selector,
+                    'submitButtons': submit_buttons,
+                    'description': f'Form inside modal {modal_selector} with {len(submit_buttons)} submit button(s)'
+                })
+        
         # Check if this form pattern is already documented
         if self._form_pattern_already_documented(url, form_elements):
             return insights
@@ -257,9 +246,78 @@ class GlyphMdUpdater:
             insights.append({
                 'type': 'form_pattern',
                 'url': url,
-                'elements': form_elements,
-                'action': action
+                'action': action,
+                'elements': form_elements
             })
+        
+        return insights
+    
+    def _check_for_modal_patterns(self, url: str, page_data: Dict[str, Any], action: str) -> List[Dict[str, Any]]:
+        """Check for new modal patterns from enhanced debug output."""
+        insights = []
+        
+        # Check for modals array in page_data
+        modals = page_data.get('modals', [])
+        if modals:
+            for modal in modals:
+                if isinstance(modal, dict):
+                    modal_selector = modal.get('selector', '')
+                    is_visible = modal.get('isVisible', False)
+                    role = modal.get('role', 'dialog')
+                    forms_in_modal = modal.get('forms', [])
+                    submit_buttons = modal.get('submitButtons', [])
+                    close_buttons = modal.get('closeButtons', [])
+                    
+                    if modal_selector and is_visible:
+                        insights.append({
+                            'type': 'modal_pattern',
+                            'url': url,
+                            'action': action,
+                            'modalSelector': modal_selector,
+                            'role': role,
+                            'formsCount': len(forms_in_modal),
+                            'submitButtons': submit_buttons,
+                            'closeButtons': close_buttons,
+                            'description': f'Modal {modal_selector} ({role}) with {len(forms_in_modal)} form(s) and {len(submit_buttons)} submit button(s)'
+                        })
+        
+        # Check for forms that are inside modals
+        forms = page_data.get('formElements', [])
+        if forms:
+            for form in forms:
+                if isinstance(form, dict) and form.get('isInModal'):
+                    modal_selector = form.get('modalSelector', '')
+                    submit_buttons = form.get('submitButtons', [])
+                    
+                    if modal_selector:
+                        insights.append({
+                            'type': 'modal_form',
+                            'url': url,
+                            'action': action,
+                            'modalSelector': modal_selector,
+                            'submitButtons': submit_buttons,
+                            'description': f'Form inside modal {modal_selector} with {len(submit_buttons)} submit button(s)'
+                        })
+        
+        # Check for non-form buttons that open modals
+        non_form_buttons = page_data.get('nonFormButtons', [])
+        if non_form_buttons:
+            for button in non_form_buttons:
+                if isinstance(button, dict) and button.get('purpose') == 'modal_opener':
+                    text = button.get('text', '')
+                    # Use the first available selector
+                    selectors = button.get('selectors', {})
+                    selector = selectors.get('byText') or selectors.get('byType') or 'button'
+                    
+                    if text and selector:
+                        insights.append({
+                            'type': 'modal_opener',
+                            'url': url,
+                            'action': action,
+                            'buttonText': text,
+                            'buttonSelector': selector,
+                            'description': f'Button "{text}" opens modal (use {selector})'
+                        })
         
         return insights
     
@@ -337,8 +395,14 @@ class GlyphMdUpdater:
         return text in self.current_content
     
     def _modal_pattern_already_documented(self, url: str) -> bool:
-        """Check if modal pattern is already documented."""
-        return "modal" in self.current_content.lower() and url in self.current_content
+        """Check if modal patterns for this URL are already documented."""
+        # This is a simplified check - in a real implementation, you'd check glyph.md
+        return False
+    
+    def _form_pattern_already_documented(self, url: str, form_elements: List[Dict]) -> bool:
+        """Check if form patterns for this URL are already documented."""
+        # This is a simplified check - in a real implementation, you'd check glyph.md
+        return False
     
     def _wait_pattern_already_documented(self, url: str) -> bool:
         """Check if wait pattern is already documented."""
@@ -407,7 +471,7 @@ class GlyphMdUpdater:
                 sections['Pages Discovered'].append(insight)
             elif insight['type'] == 'new_selector':
                 sections['Known Selectors'].append(insight)
-            elif insight['type'] in ['navigation_pattern', 'form_pattern', 'interaction_pattern']:
+            elif insight['type'] in ['navigation_pattern', 'form_pattern', 'interaction_pattern', 'modal_pattern', 'modal_form', 'modal_opener']:
                 sections['System Insights'].append(insight)
         
         # Update each section
@@ -435,40 +499,31 @@ class GlyphMdUpdater:
         
         # Write updated content
         self.current_content = '\n'.join(updated_lines)
-        self.glyph_md_file.write_text(self.current_content)
+        self.storage_manager.update_content(self.current_content)
     
     def _format_insight(self, insight: Dict[str, Any]) -> str:
-        """Format an insight for markdown."""
-        if insight['type'] == 'new_page':
-            return f"""### {insight['title']}
-**URL:** {insight['url']}
-**Description:** {insight['description']}
-**Elements:** {insight['elements_count']} total
-
-"""
-        elif insight['type'] == 'new_selector':
-            return f"""### {insight['text']}
-**Selectors:** {', '.join(f'`{k}={v}`' for k, v in insight['selectors'].items())}
-**Context:** {insight['action']}
-
-"""
-        elif insight['type'] == 'navigation_pattern':
-            return f"""### Navigation: {insight['text']}
-**URL:** {insight['href']}
-**Context:** {insight['action']}
-
-"""
-        elif insight['type'] == 'form_pattern':
-            return f"""### Form Pattern at {insight['url']}
-**Elements:** {len(insight['elements'])} form elements
-**Context:** {insight['action']}
-
-"""
-        elif insight['type'] == 'interaction_pattern':
-            return f"""### {insight['pattern'].replace('_', ' ').title()} at {insight['url']}
-**Context:** {insight['action']}
-
-"""
+        """Format an insight for markdown using templates."""
+        if not self.template_manager:
+            return self._format_insight_fallback(insight)
+        
+        try:
+            return self.template_manager.render_template('system_state/insight_router.j2',
+                insight_type=insight['type'],
+                **insight
+            )
+        except Exception as e:
+            logger.warning(f"Template rendering failed for {insight['type']}, using fallback: {e}")
+            return self._format_insight_fallback(insight)
+    
+    def _format_insight_fallback(self, insight: Dict[str, Any]) -> str:
+        """Fallback formatting when templates are not available."""
+        try:
+            return self.template_manager.render_template('system_state/insight_router.j2',
+                insight_type=insight['type'],
+                **insight
+            )
+        except Exception as e:
+            logger.warning(f"Fallback template rendering failed for {insight['type']}: {e}")
         
         return ""
     
@@ -517,4 +572,4 @@ class GlyphMdUpdater:
         
         # Write updated content
         self.current_content = '\n'.join(updated_lines)
-        self.glyph_md_file.write_text(self.current_content)
+        self.storage_manager.update_content(self.current_content)

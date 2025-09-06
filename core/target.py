@@ -1,11 +1,10 @@
 from abc import ABC, abstractmethod
 from typing import List
 from pathlib import Path
-import json
 import subprocess
 import logging
 from .templates import TemplateManager
-from .scenario_builder import ScenarioBuilder
+
 
 logger = logging.getLogger(__name__)
 
@@ -17,6 +16,21 @@ class Target(ABC):
     
     def __repr__(self):
         return f'{self.__class__.__name__}(name={self.name})'
+    
+    @abstractmethod
+    def get_spec_extension(self) -> str:
+        """Return file extension for test specs."""
+        pass
+    
+    @abstractmethod
+    def get_template_path(self, template_name: str) -> str:
+        """Return target-specific template path."""
+        pass
+    
+    @abstractmethod
+    def include_referenced_spec(self, current_spec: str, scenario_name: str, filesystem) -> str:
+        """Target-specific way to include referenced specs."""
+        pass
 
 
 class PlaywrightTarget(Target):
@@ -25,14 +39,72 @@ class PlaywrightTarget(Target):
         self.version = '1.40.0'
         self.template_manager = TemplateManager()
     
+    def get_spec_extension(self) -> str:
+        """Return file extension for test specs."""
+        return ".spec.js"
+    
+    def get_template_path(self, template_name: str) -> str:
+        """Return target-specific template path."""
+        return f"targets/playwright/{template_name}.j2"
+    
+    def include_referenced_spec(self, current_spec: str, scenario_name: str, filesystem) -> str:
+        """Target-specific way to include referenced specs."""
+        # Check if the referenced scenario spec exists
+        referenced_spec_file = f'.glyph/tests/{scenario_name}{self.get_spec_extension()}'
+        if not filesystem.exists(referenced_spec_file):
+            logger.warning(f"Referenced scenario spec not found: {referenced_spec_file}")
+            return current_spec
+        
+        # Read the referenced spec
+        referenced_spec = filesystem.read_text(referenced_spec_file)
+        if not referenced_spec:
+            logger.warning(f"Referenced spec file is empty: {referenced_spec_file}")
+            return current_spec
+        
+        # Delegate to target-specific implementation
+        return self._inline_playwright_spec(current_spec, referenced_spec)
+    
+    def _inline_playwright_spec(self, current_spec: str, referenced_spec: str) -> str:
+        """Playwright-specific logic for inlining test steps."""
+        import re
+        
+        # Extract test steps from the referenced spec
+        test_match = re.search(r'test\([^)]+\)\s*=>\s*{([^}]*(?:{[^}]*}[^}]*)*)}', referenced_spec, re.DOTALL)
+        if not test_match:
+            logger.warning("Could not extract test logic from referenced spec")
+            return current_spec
+        
+        test_body = test_match.group(1).strip()
+        test_steps = []
+        for line in test_body.split('\n'):
+            line = line.strip()
+            if line.startswith('await ') and not line.startswith('await page.goto'):
+                test_steps.append(line)
+        
+        if not test_steps:
+            logger.warning("No test steps found in referenced spec")
+            return current_spec
+        
+        # Insert steps into current spec
+        steps_text = '\n'.join(f'    {step}' for step in test_steps)
+        
+        if 'await page.goto' in current_spec:
+            # Insert after page.goto
+            goto_end = current_spec.find('\n', current_spec.rfind('await page.goto'))
+            if goto_end == -1:
+                goto_end = len(current_spec)
+            return current_spec[:goto_end] + '\n' + steps_text + '\n' + current_spec[goto_end:]
+        else:
+            # Insert at beginning of test function
+            test_start = current_spec.find('async ({ page }) => {')
+            if test_start != -1:
+                test_body_start = current_spec.find('{', test_start) + 1
+                return current_spec[:test_body_start] + '\n' + steps_text + '\n' + current_spec[test_body_start:]
+            else:
+                return current_spec + '\n' + steps_text
+    
     def get_system_prompt(self) -> str:
         return "You are an expert automation engineer specializing in web automation."
-    
-
-    
-
-
-
     
     def run_debug_spec(self, spec_content: str) -> str:
         """Run a debug version of the spec and capture comprehensive page state."""
@@ -116,8 +188,9 @@ class PlaywrightTarget(Target):
 
     def build_scenario(self, scenario, debug_stop=None):
         """Build Playwright test by delegating to ScenarioBuilder."""
-        builder = ScenarioBuilder(self, self.config)
-        return builder.build_scenario(scenario, debug_stop=debug_stop)
+        # This method should be called with a ScenarioBuilder instance injected
+        # The actual implementation is now handled by the DI container
+        raise NotImplementedError("build_scenario should be called with injected ScenarioBuilder")
     
     def init(self):
         """Initialize Playwright test suite in .glyph folder."""

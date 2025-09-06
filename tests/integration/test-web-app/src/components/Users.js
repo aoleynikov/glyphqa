@@ -108,7 +108,7 @@ const Users = () => {
                     variant="primary"
                     onClick={() => setShowModal(true)}
                 >
-                    Add New User
+                    Create User
                 </Button>
             </div>
 
@@ -165,7 +165,7 @@ const Users = () => {
 
             <Modal show={showModal} onHide={() => setShowModal(false)}>
                 <Modal.Header closeButton>
-                    <Modal.Title>Add New User</Modal.Title>
+                    <Modal.Title>Create User</Modal.Title>
                 </Modal.Header>
                 <Modal.Body>
                     {error && (
@@ -173,7 +173,7 @@ const Users = () => {
                             {error}
                         </Alert>
                     )}
-                    
+
                     <Form onSubmit={handleSubmit}>
                         <Form.Group className="mb-3">
                             <Form.Label>Username</Form.Label>
@@ -223,12 +223,12 @@ const Users = () => {
                             </Form.Select>
                         </Form.Group>
 
-                        <Button 
-                            variant="primary" 
+                        <Button
+                            variant="primary"
                             type="submit"
                             disabled={submitting}
                         >
-                            {submitting ? 'Creating...' : 'Save User'}
+                            {submitting ? 'Creating...' : 'Create User'}
                         </Button>
                     </Form>
                 </Modal.Body>

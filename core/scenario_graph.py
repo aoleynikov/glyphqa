@@ -358,6 +358,11 @@ class ScenarioGraphBuilder:
         """Extract scenario dependencies from action list."""
         dependencies = []
         
+        # Get list of all available scenarios from guide files
+        available_scenarios = set()
+        for guide_file in self.guides_dir.glob("*.guide"):
+            available_scenarios.add(guide_file.stem)
+        
         for action in actions:
             # Look for [ref: scenario_name] pattern
             if '[ref:' in action and ']' in action:
@@ -365,7 +370,10 @@ class ScenarioGraphBuilder:
                 end = action.find(']', start)
                 if start > 4 and end > start:
                     scenario_name = action[start:end].strip()
-                    if scenario_name not in dependencies:
+                    # Only add if the scenario actually exists
+                    if scenario_name in available_scenarios and scenario_name not in dependencies:
                         dependencies.append(scenario_name)
+                    elif scenario_name not in available_scenarios:
+                        logger.warning(f"Found reference to non-existent scenario '{scenario_name}' in actions, ignoring")
         
         return dependencies

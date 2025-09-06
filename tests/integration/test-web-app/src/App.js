@@ -53,13 +53,13 @@ function App() {
 
     switch (activeTab) {
       case 'dashboard':
-        return <Dashboard user={user} />;
+        return <Dashboard user={user} onTabChange={setActiveTab} />;
       case 'users':
         return <Users />;
       case 'settings':
         return <Settings user={user} />;
       default:
-        return <Dashboard user={user} />;
+        return <Dashboard user={user} onTabChange={setActiveTab} />;
     }
   };
 

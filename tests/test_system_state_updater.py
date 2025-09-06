@@ -5,31 +5,39 @@ import tempfile
 import shutil
 import json
 from pathlib import Path
-from core.glyph_md_updater import GlyphMdUpdater
+from core.system_state import SystemState
 
 
-class TestGlyphMdUpdater:
-    """Test the glyph.md updater functionality."""
+class TestSystemStateUpdater:
+    """Test the system state updater functionality."""
     
     def setup_method(self):
         """Set up test environment."""
         self.temp_dir = tempfile.mkdtemp()
         self.glyph_dir = Path(self.temp_dir) / ".glyph"
         self.glyph_dir.mkdir(parents=True)
-    
+        
+        # Create mock dependencies
+        self.mock_llm = None
+        self.mock_template_manager = None
+        self.mock_system_state_manager = None 
     def teardown_method(self):
         """Clean up test environment."""
         shutil.rmtree(self.temp_dir)
     
     def test_initial_content_creation(self):
         """Test that initial content is created when glyph.md doesn't exist."""
-        updater = GlyphMdUpdater(self.glyph_dir)
+        # Create mock system state manager
+        from unittest.mock import Mock
+        mock_system_state_manager = Mock()
+        mock_system_state_manager.get_current_content.return_value = "# GlyphQA System Catalog\n*Last updated: 2024-01-01*\n\n## Site Map\n\n## System Insights\n\n## Pages Discovered\n\n## Known Selectors\n\n## Build Layers\n\n## Known Failures & Solutions"
+        
+        updater = SystemState(self.glyph_dir, None, None, mock_system_state_manager)
         
         # Check that initial content was created
         assert "# GlyphQA System Catalog" in updater.current_content
-        assert "## System Insights" in updater.current_content
-        assert "## Pages Discovered" in updater.current_content
-        assert "## Known Selectors" in updater.current_content
+        assert "## Site Map" in updater.current_content
+        assert "## Known Failures & Solutions" in updater.current_content
     
     def test_parse_debug_output(self):
         """Test parsing debug output to extract page data."""
@@ -336,7 +344,11 @@ Page State: {
 }
 ```'''
         
-        updater = GlyphMdUpdater(self.glyph_dir, llm_provider=mock_llm)
+        # Create a mock template manager
+        mock_template_manager = Mock()
+        mock_template_manager.render_template.return_value = "System prompt template content"
+        
+        updater = GlyphMdUpdater(self.glyph_dir, llm_provider=mock_llm, template_manager=mock_template_manager)
         
         debug_output = """Current URL: http://localhost:3000/dashboard
 Page Title: Dashboard
