@@ -1,21 +1,13 @@
 # GlyphQA
 
-**Turn natural language scenarios into Playwright tests with AI**
-
-GlyphQA converts human-readable test scenarios into executable Playwright test suites using LLM-driven code generation.
-
-## Main Idea
-
-Write test scenarios in plain English, and GlyphQA generates the corresponding Playwright automation code. The system uses AI to understand your scenarios, break them down into actionable steps, and create robust test implementations.
-
-## Use Cases
-
-- **Rapid Test Creation**: Convert manual test cases to automated tests quickly
-- **Non-Technical Test Writing**: Let QA engineers write tests in natural language
-- **Test Documentation**: Scenarios serve as both tests and documentation
-- **Regression Testing**: Automatically generate comprehensive test suites
+Writing auto-tests shouldn't be more complex than explaining what you want to a human. "Log in with admin/4dm1n, go to Settings -> Users, create a user and add it to a group" maps to an autotest.
 
 ## Quick Start
+
+### Prerequisites
+- Python 3.8+
+- Node.js and npm
+- OpenAI API key (set in `glyph.config.yml`)
 
 1. **Write a scenario** in `scenarios/login.glyph`:
 ```
@@ -42,14 +34,6 @@ python3 glyph test --scenario login.glyph
 - `glyph test [--scenario FILE]` - Run tests (all or specific scenario)
 - `glyph purge` - Clear cache and start fresh
 
-## Features
-
-- **Smart Caching**: Only rebuilds when scenarios change
-- **Dependency Resolution**: Automatically handles scenario references
-- **LLM-Driven**: Uses AI for intelligent code generation
-- **Playwright Integration**: Generates production-ready test code
-- **Reference System**: Reuse common workflows across scenarios
-
 ## Example
 
 **Input** (`scenarios/create_user.glyph`):
@@ -62,8 +46,11 @@ Create a new user with name, email, and role
 Verify the user appears in the list
 ```
 
-**Output**: Executable Playwright test that logs in, navigates to user management, fills the form, submits it, and verifies the result.
+## Architecture
 
----
-
-*GlyphQA bridges the gap between human-readable test scenarios and automated test execution.*
+```
+Scenarios (.glyph) → Guides (.guide) → Playwright Tests (.spec.js)
+     ↓                    ↓                    ↓
+  LLM Parsing      Check-Specific Debug    HTML-Focused
+  Step Structure   Spec Generation         Selectors
+```

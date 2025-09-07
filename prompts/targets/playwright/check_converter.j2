@@ -1,0 +1,41 @@
+Convert the check description to valid Playwright code using LLM analysis of page context.
+
+CHECK TYPE: {{ check_type }}
+DESCRIPTION: {{ description }}
+TARGET: {{ target }}
+EXPECTED: {{ expected }}
+IS EXPLICIT: {{ is_explicit }}
+
+{% if page_analysis %}
+LLM PAGE ANALYSIS:
+{{ page_analysis }}
+
+GUIDELINES:
+- Use the LLM analysis to select the best selectors from the page context
+- Prefer selectors that match the actual page structure
+- Use the recommended assertions from the analysis
+- If the primary selector isn't available, use fallback selectors
+- Focus on HTML elements (h1, nav, table, form) rather than CSS classes
+- Use semantic attributes (id, name, type, role) when available
+{% else %}
+GUIDELINES:
+- Generate appropriate selectors based on the check type
+- Use semantic HTML elements (h1, nav, table, form)
+- Prefer id, name, type attributes over CSS classes
+- Use proper Playwright expect() syntax
+- For visible checks: await expect(page.locator("selector")).toBeVisible()
+- For text checks: await expect(page.locator("selector")).toHaveText("expected text")
+- For URL checks: await expect(page).toHaveURL("expected url")
+- For count checks: await expect(page.locator("selector")).toHaveCount(number)
+- For console error checks: await expect(page.locator("body")).not.toContainText("error")
+- For page load checks: await expect(page).toHaveLoadState("networkidle")
+{% endif %}
+
+SELECTOR PRIORITY:
+1. HTML tags with semantic meaning (h1, nav, table, form)
+2. HTML attributes (id, name, type, role)
+3. ARIA attributes (aria-label, aria-describedby)
+4. Data attributes (data-testid, data-role) - only if semantic
+
+OUTPUT:
+Return only the Playwright code, no explanations or comments.

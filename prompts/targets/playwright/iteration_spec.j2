@@ -39,10 +39,10 @@ STRUCTURED FORM FILLING - HANDLE KEY-VALUE ACTIONS:
 4. **Maintain order**: Fill fields in the order they appear in the action
 5. **Handle special fields**: Select dropdowns, checkboxes, etc. appropriately
 
-Example: "fill {username: admin, password: admin_password} in login form"
+Example: "fill {field1: value1, field2: value2} in form"
 Should generate:
-- `await page.fill('input[name="username"]', 'admin');`
-- `await page.fill('input[name="password"]', 'admin_password');`
+- `await page.fill('input[name="field1"]', 'value1');`
+- `await page.fill('input[name="field2"]', 'value2');`
 
 PAGE STATE ANALYSIS - UNDERSTAND CURRENT CONTEXT:
 1. **Current URL**: Check if you're already on the target page
@@ -53,7 +53,7 @@ PAGE STATE ANALYSIS - UNDERSTAND CURRENT CONTEXT:
 6. **Modal state**: Check if any modal dialogs are currently open and blocking interactions
 
 MODAL AND FORM INTERACTION PATTERNS:
-1. **Modal opening**: Actions like "navigate to user creation UI" should open modals, not submit forms
+1. **Modal opening**: Actions like "navigate to creation UI" should open modals, not submit forms
 2. **Form submission**: Actions like "submit the form" should click submit buttons inside open modals
 3. **Modal context**: If a modal is open, all subsequent actions should interact with elements inside the modal
 4. **Form flow**: Fill form fields → open modal (if needed) → fill modal form → submit modal form

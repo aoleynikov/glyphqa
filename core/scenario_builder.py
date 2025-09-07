@@ -7,6 +7,7 @@ import os
 from .exceptions import BuildError, GuideError, FileSystemError, LLMError
 from .constants import Constants
 from .models import Scenario, Guide
+from .steps import Step
 
 if TYPE_CHECKING:
     from .models import Scenario, Guide
@@ -94,14 +95,7 @@ class ActionConverter:
             else:
                 return 'await page.click("button")'
         elif 'fill' in action_lower or 'enter' in action_lower:
-            if 'username' in action_lower:
-                return 'await page.fill("input[name=\\"username\\"]", "test_user")'
-            elif 'password' in action_lower:
-                return 'await page.fill("input[name=\\"password\\"]", "test_password")'
-            elif 'email' in action_lower:
-                return 'await page.fill("input[name=\\"email\\"]", "test@example.com")'
-            else:
-                return 'await page.fill("input", "test_value")'
+            return 'await page.fill("input", "test_value")'
         elif 'navigate' in action_lower or 'go to' in action_lower:
             return 'await page.goto("/")'
         elif 'submit' in action_lower:
@@ -307,9 +301,12 @@ export {{ {export_names} }};'''
         # Combine everything into a complete new spec
         return imports + '\n\n' + '\n\n'.join(all_functions) + '\n\n' + test_content
     
-    def build_complete_spec_from_actions_and_references(self, action_functions: List[str], reference_functions: dict, scenario: 'Scenario') -> str:
-        """Build a complete spec from collected action functions and reference functions."""
-        logger.info(f"DEBUG: build_complete_spec_from_actions_and_references called with {len(action_functions)} action functions and {len(reference_functions)} reference functions")
+    def build_complete_spec_from_actions_and_references(self, action_functions: List[str], reference_functions: dict, scenario: 'Scenario', check_functions: List[str] = None) -> str:
+        """Build a complete spec from collected action functions, check functions, and reference functions."""
+        if check_functions is None:
+            check_functions = []
+            
+        logger.info(f"DEBUG: build_complete_spec_from_actions_and_references called with {len(action_functions)} action functions, {len(check_functions)} check functions, and {len(reference_functions)} reference functions")
         
         # Get the main scenario function name
         main_scenario_function_name = self._generate_scenario_function_name(scenario)
@@ -322,6 +319,14 @@ export {{ {export_names} }};'''
                 func_name = func.split('async function ')[1].split('(')[0].strip()
                 action_function_names.append(func_name)
                 logger.info(f"DEBUG: Action function {i}: extracted name '{func_name}'")
+        
+        # Extract function names from check functions
+        check_function_names = []
+        for i, func in enumerate(check_functions):
+            if 'async function ' in func:
+                func_name = func.split('async function ')[1].split('(')[0].strip()
+                check_function_names.append(func_name)
+                logger.info(f"DEBUG: Check function {i}: extracted name '{func_name}'")
         
         # Get reference function names
         reference_function_names = list(reference_functions.keys())
@@ -353,21 +358,25 @@ export {{ {export_names} }};'''
         for func_name in action_function_names:
             main_function_calls.append(f'    await {func_name}(page)')
         
+        # Finally call all check functions
+        for func_name in check_function_names:
+            main_function_calls.append(f'    await {func_name}(page)')
+        
         main_function_calls_text = '\n'.join(main_function_calls)
         
         main_scenario_function = f'''async function {main_scenario_function_name}(page) {{
 {main_function_calls_text}
 }}'''
         
-        # Combine all functions: reference functions first, then action functions, then main function
-        all_functions = list(reference_functions.values()) + action_functions + [main_scenario_function]
+        # Combine all functions: reference functions first, then action functions, then check functions, then main function
+        all_functions = list(reference_functions.values()) + action_functions + check_functions + [main_scenario_function]
         
         # Build test calls - only call the main scenario function
         test_calls = [f'        await {main_scenario_function_name}(page)']
         test_calls_text = '\n'.join(test_calls)
         
         # Build export statement - export the main scenario function and all other functions
-        all_function_names = reference_function_names + action_function_names + [main_scenario_function_name]
+        all_function_names = reference_function_names + action_function_names + check_function_names + [main_scenario_function_name]
         export_names = ', '.join(all_function_names)
         
         # Get scenario information for dynamic naming
@@ -422,6 +431,40 @@ export {{ {export_names} }};'''
         
         return function_name
     
+    def _generate_check_function_name(self, check_description: str) -> str:
+        """Generate a unique function name for a check based on its description."""
+        # Convert check description to a camelCase function name
+        # Remove common words and convert to camelCase
+        words = check_description.lower().split()
+        
+        # Filter out common words that don't add meaning
+        filtered_words = []
+        for word in words:
+            if word not in ['the', 'a', 'an', 'and', 'or', 'to', 'in', 'on', 'at', 'by', 'for', 'with', 'from', 'verify', 'check', 'assert', 'expect']:
+                filtered_words.append(word)
+        
+        if not filtered_words:
+            # Fallback: use first few words
+            filtered_words = words[:3]
+        
+        # Convert to camelCase
+        function_name = filtered_words[0]
+        for word in filtered_words[1:]:
+            function_name += word.capitalize()
+        
+        # Ensure it's a valid JavaScript identifier
+        function_name = re.sub(r'[^a-zA-Z0-9_]', '', function_name)
+        
+        # Ensure it starts with a letter
+        if function_name and not function_name[0].isalpha():
+            function_name = 'check' + function_name
+        
+        # Add check prefix to distinguish from actions
+        if not function_name.startswith('check'):
+            function_name = 'check' + function_name.capitalize()
+        
+        return function_name
+    
     def _generate_scenario_function_name(self, scenario: 'Scenario') -> str:
         """Generate a function name for the main scenario function from the glyph file path."""
         # Get the glyph file path relative to scenarios directory
@@ -440,9 +483,10 @@ export {{ {export_names} }};'''
 class DebugSpecManager:
     """Handles generation of debug specs and page state capture."""
     
-    def __init__(self, target, template_manager):
+    def __init__(self, target, template_manager, llm_provider=None):
         self.target = target
         self.template_manager = template_manager
+        self.llm_provider = llm_provider
     
     def generate_debug_spec(self, current_spec: str, current_action: str = None) -> str:
         """Generate a debug specification for capturing page state."""
@@ -465,11 +509,324 @@ class DebugSpecManager:
             implemented_actions='\n    '.join(implemented_actions)
         )
     
+    def generate_check_specific_debug_spec(self, check_description: str, current_spec: str) -> str:
+        """Generate a debug spec that captures page state relevant to the specific check."""
+        import json
+        
+        # Extract implemented actions from current spec
+        implemented_actions = self._extract_implemented_actions(current_spec)
+        
+        # Use LLM to determine what page elements to capture for this check
+        analysis_prompt = f"""
+        You are analyzing a test check to determine what page elements should be captured for verification.
+        
+        CHECK DESCRIPTION: {check_description}
+        IMPLEMENTED ACTIONS: {implemented_actions}
+        
+        Based on this check, what specific page elements should we capture to generate accurate selectors?
+        
+        GUIDELINES:
+        - Focus on HTML elements that are likely to be checked (h1, nav, table, form, button)
+        - Consider the context of the implemented actions
+        - For page verification checks: capture headings and navigation elements
+        - For data verification checks: capture table structures and data elements
+        - For form verification checks: capture form elements and inputs
+        - For access control checks: capture navigation and authentication elements
+        
+        Return a JSON object with:
+        {{
+            "elements_to_capture": [
+                {{
+                    "type": "heading",
+                    "reason": "Check verifies page title/navigation",
+                    "selector": "h1, h2, h3"
+                }},
+                {{
+                    "type": "table",
+                    "reason": "Check verifies data display",
+                    "selector": "table"
+                }}
+            ],
+            "context_needed": "What additional context is needed for this check"
+        }}
+        """
+        
+        try:
+            # Get LLM analysis of what to capture
+            analysis = self.llm_provider.generate(analysis_prompt, "")
+            capture_plan = json.loads(analysis)
+        except Exception as e:
+            logger.warning(f"LLM analysis failed: {e}, using fallback")
+            # Fallback to basic capture plan
+            capture_plan = {
+                "elements_to_capture": [
+                    {"type": "heading", "reason": "Basic page verification", "selector": "h1, h2"},
+                    {"type": "table", "reason": "Data verification", "selector": "table"},
+                    {"type": "form", "reason": "Form verification", "selector": "form"}
+                ],
+                "context_needed": "Basic page context"
+            }
+        
+        # Generate debug spec based on the analysis
+        return self._generate_targeted_debug_spec(capture_plan, implemented_actions, check_description)
+    
+    def _extract_implemented_actions(self, current_spec: str) -> List[str]:
+        """Extract implemented actions from current spec."""
+        lines = current_spec.split('\n')
+        implemented_actions = []
+        
+        for line in lines:
+            line = line.strip()
+            if line.startswith('await page.') and not line.startswith('await page.goto(\'/\')'):
+                action = line.strip()
+                implemented_actions.append(action)
+        
+        return implemented_actions
+    
+    def _generate_targeted_debug_spec(self, capture_plan: dict, implemented_actions: list, check_description: str) -> str:
+        """Generate debug spec that captures only relevant elements."""
+        import json
+        
+        elements_to_capture = capture_plan.get("elements_to_capture", [])
+        
+        # Build JavaScript to capture only relevant elements
+        capture_js = """
+    const pageContext = await page.evaluate(() => {
+        const context = {
+            url: window.location.href,
+            title: document.title,
+            timestamp: new Date().toISOString()
+        };
+    """
+        
+        for element_plan in elements_to_capture:
+            element_type = element_plan["type"]
+            selector = element_plan["selector"]
+            
+            if element_type == "heading":
+                capture_js += f"""
+        // Capture headings for page verification
+        context.headings = Array.from(document.querySelectorAll('{selector}')).map(h => ({{
+            tag: h.tagName,
+            text: h.textContent.trim(),
+            id: h.id,
+            level: h.tagName.toLowerCase()
+        }}));
+                """
+            elif element_type == "table":
+                capture_js += f"""
+        // Capture table structure for data verification
+        context.tables = Array.from(document.querySelectorAll('{selector}')).map(table => ({{
+            id: table.id,
+            hasHeader: !!table.querySelector('thead'),
+            hasBody: !!table.querySelector('tbody'),
+            rowCount: table.querySelector('tbody')?.querySelectorAll('tr').length || 0,
+            headers: Array.from(table.querySelectorAll('th')).map(th => th.textContent.trim()),
+            sampleRow: table.querySelector('tbody tr') ? 
+                Array.from(table.querySelector('tbody tr').cells).map(cell => cell.textContent.trim()) : []
+        }}));
+                """
+            elif element_type == "form":
+                capture_js += f"""
+        // Capture form structure for form verification
+        context.forms = Array.from(document.querySelectorAll('{selector}')).map(form => ({{
+            id: form.id,
+            action: form.action,
+            method: form.method,
+            fields: Array.from(form.querySelectorAll('input, select, textarea')).map(field => ({{
+                tag: field.tagName,
+                type: field.type,
+                name: field.name,
+                id: field.id
+            }}))
+        }}));
+                """
+            elif element_type == "navigation":
+                capture_js += f"""
+        // Capture navigation for access control verification
+        context.navigation = Array.from(document.querySelectorAll('{selector}')).map(nav => ({{
+            tag: nav.tagName,
+            text: nav.textContent.trim().substring(0, 100),
+            id: nav.id,
+            visible: nav.offsetParent !== null
+        }}));
+                """
+            elif element_type == "button":
+                capture_js += f"""
+        // Capture buttons for interaction verification
+        context.buttons = Array.from(document.querySelectorAll('{selector}')).map(btn => ({{
+            tag: btn.tagName,
+            type: btn.type,
+            text: btn.textContent.trim(),
+            id: btn.id,
+            disabled: btn.disabled
+        }}));
+                """
+        
+        capture_js += """
+        return context;
+    });
+    
+    console.log('Check-Specific Page Context:', JSON.stringify(pageContext, null, 2));
+        """
+        
+        # Build the complete debug spec
+        debug_spec = f"""
+import {{ test, expect }} from '@playwright/test';
+
+test('Debug spec for check: {check_description}', async ({{ page }}) => {{
+    // Navigate to the page
+    await page.goto('/');
+    
+    // Execute implemented actions
+    {self._build_action_execution(implemented_actions)}
+    
+    // Capture check-specific page context
+    {capture_js}
+}});
+        """
+        
+        return debug_spec
+    
+    def _build_action_execution(self, implemented_actions: list) -> str:
+        """Build action execution code for debug spec."""
+        if not implemented_actions:
+            return "    // No actions to execute"
+        
+        action_code = []
+        for action in implemented_actions:
+            action_code.append(f"    {action}")
+        
+        return '\n'.join(action_code)
+    
+    def analyze_page_state_for_check(self, page_context: dict, check_description: str) -> dict:
+        """Use LLM to analyze page state and extract relevant information for the check."""
+        import json
+        
+        analysis_prompt = f"""
+        You are analyzing page state to extract information relevant to a specific test check.
+        
+        CHECK DESCRIPTION: {check_description}
+        PAGE CONTEXT: {json.dumps(page_context, indent=2)}
+        
+        Based on the check description and page context, extract the most relevant information for generating accurate Playwright selectors.
+        
+        IMPORTANT GUIDELINES:
+        - Focus on HTML elements (h1, h2, nav, table, form) rather than CSS classes
+        - Use semantic attributes (id, name, type, role) when available
+        - Prefer selectors that match the actual page structure shown in context
+        - For page verification checks, look for headings and navigation elements
+        - For data verification checks, look for table structures and data elements
+        - For access control checks, look for authentication and authorization elements
+        
+        Return a JSON object with:
+        {{
+            "relevant_elements": [
+                {{
+                    "type": "heading",
+                    "selector": "h1",
+                    "text": "Page Title",
+                    "reason": "Main page title for page verification"
+                }}
+            ],
+            "check_context": {{
+                "page_type": "application_page",
+                "user_state": "authenticated",
+                "data_present": true
+            }},
+            "recommended_selectors": [
+                {{
+                    "purpose": "verify page title",
+                    "selector": "h1",
+                    "assertion": "toHaveText('Page Title')"
+                }}
+            ]
+        }}
+        """
+        
+        try:
+            analysis = self.llm_provider.generate(analysis_prompt, "")
+            return json.loads(analysis)
+        except Exception as e:
+            logger.warning(f"LLM page analysis failed: {e}")
+            return {
+                "relevant_elements": [],
+                "check_context": {"page_type": "unknown"},
+                "recommended_selectors": []
+            }
+    
     def capture_page_state(self, debug_spec: str, scenario: 'Scenario') -> str:
         """Capture the current page state using the debug spec."""
-        # This would typically run the debug spec and capture the output
-        # For now, return a placeholder
-        return "Page State: Debug spec generated, page state capture not implemented"
+        import subprocess
+        import tempfile
+        import os
+        import json
+        
+        try:
+            # Create a temporary debug spec file
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.spec.js', delete=False) as f:
+                f.write(debug_spec)
+                debug_spec_path = f.name
+            
+            # Run the debug spec and capture output
+            result = subprocess.run(
+                ['npx', 'playwright', 'test', debug_spec_path, '--reporter=json'],
+                cwd='.glyph',
+                capture_output=True,
+                text=True,
+                timeout=30
+            )
+            
+            # Clean up temporary file
+            os.unlink(debug_spec_path)
+            
+            if result.returncode == 0:
+                # Parse the JSON output to extract console logs
+                try:
+                    output_data = json.loads(result.stdout)
+                    if output_data and len(output_data) > 0:
+                        test_result = output_data[0]
+                        # Look for console logs in the test output
+                        if 'stdout' in test_result:
+                            stdout_content = test_result['stdout']
+                            # Extract JSON from console.log output
+                            if 'Check-Specific Page Context:' in stdout_content:
+                                # Find the JSON part after the label
+                                json_start = stdout_content.find('Check-Specific Page Context:') + len('Check-Specific Page Context:')
+                                json_content = stdout_content[json_start:].strip()
+                                # Remove any non-JSON prefix
+                                if json_content.startswith('\n'):
+                                    json_content = json_content[1:]
+                                # Try to parse the JSON
+                                try:
+                                    page_context = json.loads(json_content)
+                                    return json.dumps(page_context, indent=2)
+                                except json.JSONDecodeError:
+                                    logger.warning("Failed to parse page context JSON from debug spec output")
+                                    return "Page State: Failed to parse captured context"
+                            else:
+                                logger.info("No page context found in debug spec output")
+                                return "Page State: No context captured"
+                        else:
+                            logger.info("No stdout found in debug spec output")
+                            return "Page State: No output captured"
+                    else:
+                        logger.info("Empty debug spec output")
+                        return "Page State: Empty output"
+                except json.JSONDecodeError as e:
+                    logger.warning(f"Failed to parse debug spec JSON output: {e}")
+                    return "Page State: Failed to parse output"
+            else:
+                logger.warning(f"Debug spec execution failed with return code {result.returncode}")
+                logger.warning(f"Error output: {result.stderr}")
+                return "Page State: Debug spec execution failed"
+                
+        except subprocess.TimeoutExpired:
+            logger.warning("Debug spec execution timed out")
+            return "Page State: Execution timeout"
+        except Exception as e:
+            logger.warning(f"Failed to capture page state: {e}")
+            return "Page State: Capture failed"
 
 
 class ReferenceHandler:
@@ -586,7 +943,7 @@ class ScenarioBuilder:
         # Initialize specialized services
         self.action_converter = ActionConverter(llm_provider, template_manager, target)
         self.spec_generator = SpecGenerator(template_manager, target, filesystem)
-        self.debug_spec_manager = DebugSpecManager(target, template_manager)
+        self.debug_spec_manager = DebugSpecManager(target, template_manager, llm_provider)
         self.reference_handler = ReferenceHandler(filesystem, template_manager)
         self.system_state_manager = SystemStateManager(system_state, llm_provider, template_manager)
     
@@ -623,27 +980,38 @@ class ScenarioBuilder:
         
         self._load_all_guides()
         
-        actions = self._get_actions_from_guide(scenario)
-        if not actions:
-            logger.info("No guide file found, generating actions using LLM...")
+        steps = self._get_steps_from_guide(scenario)
+        if not steps:
+            logger.info("No guide file found, generating steps using LLM...")
             # Get template manager from target
             template_manager = self.target.template_manager
-            actions = scenario.list_actions(self.llm_provider, template_manager)
+            steps = scenario.parse_steps(self.llm_provider, template_manager).steps
         
+        # Separate actions and checks
+        actions = [step for step in steps if step.step_type == "action"]
+        checks = [step for step in steps if step.step_type == "check"]
+        
+        logger.info(f"Found {len(actions)} actions and {len(checks)} checks")
+        
+        # Process actions for references (same logic as before)
         unique_actions = []
         for action in actions:
-            if action.strip().startswith('[ref:') and ']' in action:
-                ref_start = action.find('[ref:') + 5
-                ref_end = action.find(']')
-                scenario_name = action[ref_start:ref_end].strip()
+            action_desc = action.description
+            if action_desc.strip().startswith('[ref:') and ']' in action_desc:
+                ref_start = action_desc.find('[ref:') + 5
+                ref_end = action_desc.find(']')
+                scenario_name = action_desc[ref_start:ref_end].strip()
                 logger.info(f"Including reference to {scenario_name} - will merge logic")
                 unique_actions.append(f"[INCLUDE_REF:{scenario_name}]")
             else:
                 unique_actions.append(action)
         
-        logger.info(f"Found {len(actions)} total actions, building {len(unique_actions)} unique actions:")
+        logger.info(f"Building {len(unique_actions)} unique actions:")
         for i, action in enumerate(unique_actions, 1):
-            logger.info(f"  {i}. {action}")
+            if isinstance(action, str):
+                logger.info(f"  {i}. {action}")
+            else:
+                logger.info(f"  {i}. {action.description}")
         
         spec_file = f'.glyph/tests/{scenario.name}{self.target.get_spec_extension()}'
         if self.filesystem.exists(spec_file):
@@ -653,20 +1021,24 @@ class ScenarioBuilder:
         current_spec = self.spec_generator.generate_initial_spec()
         implemented_actions = ["Navigate to the root page"]
         action_functions = []  # Collect individual action functions
+        check_functions = []   # Collect individual check functions
         reference_functions = {}  # Collect functions from referenced specs
         
         logger.info(f"Building Playwright test...")
         
+        # Build action functions
         for i, action in enumerate(unique_actions, 1):
             if debug_stop and i == debug_stop:
-                logger.info(f"🛑 DEBUG STOP: Stopping at action {i}: {action}")
+                action_desc = action if isinstance(action, str) else action.description
+                logger.info(f"🛑 DEBUG STOP: Stopping at action {i}: {action_desc}")
                 logger.info(f"Current spec:\n{current_spec}")
                 return current_spec
             
             # Check if this is a reference action
-            if '[INCLUDE_REF:' in action:
+            action_desc = action if isinstance(action, str) else action.description
+            if '[INCLUDE_REF:' in action_desc:
                 # Extract and process the reference
-                ref_name = self.reference_handler.extract_ref_name(action)
+                ref_name = self.reference_handler.extract_ref_name(action_desc)
                 if ref_name:
                     logger.info(f"📚 Processing reference: {ref_name}")
                     # Load the referenced spec file
@@ -682,20 +1054,33 @@ class ScenarioBuilder:
                         logger.warning(f"Referenced spec file not found: {ref_spec_file}")
                 
                 # Skip to next action since this is just a reference
-                implemented_actions.append(action)
+                implemented_actions.append(action_desc)
                 continue
             
-            # Regular action processing - just get the action function
-            action_function = self._build_next_action(current_spec, action, implemented_actions, unique_actions, i-1, scenario)
+            # Regular action processing - handle Action objects
+            if isinstance(action, str):
+                # Fallback for old string format
+                action_function = self._build_next_action(current_spec, action, implemented_actions, unique_actions, i-1, scenario)
+            else:
+                # New Action object - use step-based generation
+                action_function = self._build_next_step(current_spec, action, implemented_actions, unique_actions, i-1, scenario)
+            
             if action_function:
                 action_functions.append(action_function)
             
-            implemented_actions.append(action)
+            implemented_actions.append(action_desc)
         
-        # Build the complete spec with all collected action functions and reference functions
-        if action_functions or reference_functions:
-            logger.info(f"Building complete spec with {len(action_functions)} action functions and {len(reference_functions)} reference functions")
-            current_spec = self.spec_generator.build_complete_spec_from_actions_and_references(action_functions, reference_functions, scenario)
+        # Build check functions
+        for i, check in enumerate(checks, 1):
+            logger.info(f"Building check {i}: {check.description}")
+            check_function = self._build_next_step(current_spec, check, implemented_actions, checks, i-1, scenario)
+            if check_function:
+                check_functions.append(check_function)
+        
+        # Build the complete spec with all collected action functions, check functions, and reference functions
+        if action_functions or check_functions or reference_functions:
+            logger.info(f"Building complete spec with {len(action_functions)} action functions, {len(check_functions)} check functions, and {len(reference_functions)} reference functions")
+            current_spec = self.spec_generator.build_complete_spec_from_actions_and_references(action_functions, reference_functions, scenario, check_functions)
         
         self.spec_generator.save_spec(spec_file, current_spec)
         logger.info(f"✅ Saved spec to: {spec_file}")
@@ -711,16 +1096,42 @@ class ScenarioBuilder:
         
         return current_spec
     
-    def _get_actions_from_guide(self, scenario: 'Scenario') -> Optional[List[str]]:
-        """Try to load actions from a pre-processed guide file."""
+    def _get_steps_from_guide(self, scenario: 'Scenario') -> Optional[List['Step']]:
+        """Try to load steps from a pre-processed guide file."""
+        from .steps import Action, Check
+        
         guide_file = f'.glyph/guides/{scenario.name}.guide'
         if self.filesystem.exists(guide_file):
             try:
                 guide = Guide.from_file(guide_file, self.filesystem)
                 logger.info(f"Loaded guide: {guide_file}")
                 
-                # Return the original actions (don't flatten - we'll handle refs during build)
-                return guide.actions
+                # Parse step strings back into Step objects
+                steps = []
+                for step_str in guide.actions:
+                    if step_str.startswith('action: '):
+                        description = step_str[8:].strip()  # Remove 'action: ' prefix
+                        # Extract action type and target from description
+                        action_type = self._extract_action_type(description)
+                        target = self._extract_target(description)
+                        steps.append(Action(description, action_type, target))
+                    elif step_str.startswith('check: '):
+                        description = step_str[7:].strip()  # Remove 'check: ' prefix
+                        check_type = self._extract_check_type(description)
+                        target = self._extract_target(description)
+                        steps.append(Check(description, check_type, target, is_explicit=True))
+                    elif step_str.startswith('baseline: '):
+                        description = step_str[10:].strip()  # Remove 'baseline: ' prefix
+                        check_type = self._extract_check_type(description)
+                        target = self._extract_target(description)
+                        steps.append(Check(description, check_type, target, is_explicit=False))
+                    else:
+                        # Fallback for old format or malformed steps
+                        logger.warning(f"Unknown step format: {step_str}")
+                        steps.append(Action(step_str, "unknown", ""))
+                
+                logger.info(f"Parsed {len(steps)} steps from guide")
+                return steps
             except (FileNotFoundError, PermissionError) as e:
                 logger.warning(f"Failed to load guide {guide_file}: {e}")
                 return None
@@ -731,7 +1142,143 @@ class ScenarioBuilder:
             logger.info(f"No guide file found: {guide_file}")
             return None
     
+    def _extract_action_type(self, description: str) -> str:
+        """Extract action type from description."""
+        description_lower = description.lower()
+        if 'navigate' in description_lower or 'go to' in description_lower:
+            return 'navigate'
+        elif 'click' in description_lower:
+            return 'click'
+        elif 'fill' in description_lower or 'enter' in description_lower or 'type' in description_lower:
+            return 'fill'
+        elif 'submit' in description_lower:
+            return 'submit'
+        elif 'select' in description_lower:
+            return 'select'
+        else:
+            return 'interact'
+    
+    def _extract_check_type(self, description: str) -> str:
+        """Extract check type from description."""
+        description_lower = description.lower()
+        if 'verify' in description_lower or 'check' in description_lower:
+            return 'verify'
+        elif 'assert' in description_lower:
+            return 'assert'
+        elif 'expect' in description_lower:
+            return 'expect'
+        elif 'console' in description_lower:
+            return 'console_error'
+        elif 'page' in description_lower and 'load' in description_lower:
+            return 'page_load'
+        elif 'network' in description_lower:
+            return 'network_error'
+        else:
+            return 'verify'
+    
+    def _extract_target(self, description: str) -> str:
+        """Extract target element/page from description."""
+        # Simple heuristic - look for common patterns
+        if 'form' in description.lower():
+            return 'form'
+        elif 'button' in description.lower():
+            return 'button'
+        elif 'page' in description.lower():
+            return 'page'
+        elif 'element' in description.lower():
+            return 'element'
+        else:
+            return 'element'
+    
 
+    
+    def _build_next_step(self, current_spec: str, step, implemented_actions: List[str], all_steps: list, current_step_index: int, scenario: 'Scenario' = None) -> str:
+        """Build Playwright code for a Step object (Action or Check)."""
+        from .steps import Action, Check
+        
+        if isinstance(step, Action):
+            return self._build_next_action(current_spec, step.description, implemented_actions, all_steps, current_step_index, scenario)
+        elif isinstance(step, Check):
+            return self._build_next_check(current_spec, step, implemented_actions, all_steps, current_step_index, scenario)
+        else:
+            logger.warning(f"Unknown step type: {type(step)}")
+            return None
+    
+    def _build_next_check(self, current_spec: str, check, implemented_actions: List[str], all_steps: list, current_step_index: int, scenario: 'Scenario' = None) -> str:
+        """Build Playwright code for a Check step with check-specific page analysis."""
+        logger.info(f"Building check: {check.description}")
+        
+        # Generate check-specific debug spec
+        debug_spec = self.debug_spec_manager.generate_check_specific_debug_spec(check.description, current_spec)
+        
+        # Capture page state relevant to this check
+        page_context = self.debug_spec_manager.capture_page_state(debug_spec, scenario)
+        
+        # Use LLM to analyze page context for this specific check
+        page_analysis = None
+        if page_context and page_context != "Page State: Debug spec generated, page state capture not implemented":
+            try:
+                # Parse page context if it's JSON
+                import json
+                if page_context.startswith('{'):
+                    parsed_context = json.loads(page_context)
+                    page_analysis = self.debug_spec_manager.analyze_page_state_for_check(parsed_context, check.description)
+                else:
+                    logger.info("Page context is not JSON, skipping analysis")
+            except Exception as e:
+                logger.warning(f"Failed to parse page context: {e}")
+        
+        # Use LLM to convert check to Playwright code with enhanced context
+        try:
+            logger.info(f"Attempting LLM check conversion for: {check.description}")
+            
+            # Use the step's to_playwright method with LLM and page analysis
+            playwright_code = check.to_playwright(self.llm_provider, self.target.template_manager, page_analysis)
+            
+            if playwright_code:
+                logger.info(f"LLM check conversion succeeded with page analysis")
+                # Create a check function
+                check_name = self.spec_generator._generate_check_function_name(check.description)
+                check_function = f'''async function {check_name}(page) {{
+    {playwright_code}
+}}'''
+                logger.info(f"Created check function: {check_name}")
+                return check_function
+            else:
+                logger.info("LLM check conversion returned None, using fallback")
+        except Exception as e:
+            logger.warning(f"LLM check conversion failed, using fallback: {e}")
+        
+        # Fallback check generation
+        return self._fallback_check_conversion(check)
+    
+    def _fallback_check_conversion(self, check) -> str:
+        """Fallback check conversion using simple heuristics."""
+        check_name = self.spec_generator._generate_check_function_name(check.description)
+        
+        if check.check_type == 'console_error':
+            return f'''async function {check_name}(page) {{
+    // Check for console errors
+    const logs = [];
+    page.on('console', msg => logs.push(msg.text()));
+    // This check runs after actions, so errors would already be logged
+}}'''
+        elif check.check_type == 'page_load':
+            return f'''async function {check_name}(page) {{
+    // Verify page loaded successfully
+    await expect(page).toHaveURL(/^(?!.*(404|500|error)).*$/);
+}}'''
+        elif check.check_type == 'network_error':
+            return f'''async function {check_name}(page) {{
+    // Check for network failures
+    const response = await page.waitForResponse(response => response.status() >= 400);
+    expect(response.status()).toBeLessThan(400);
+}}'''
+        else:
+            return f'''async function {check_name}(page) {{
+    // TODO: Implement check for {check.description}
+    console.log("Check: {check.description}");
+}}'''
     
     def _build_next_action(self, current_spec: str, action: str, implemented_actions: List[str], all_actions: list, current_action_index: int, scenario: 'Scenario' = None) -> str:
         # Check if this action contains references

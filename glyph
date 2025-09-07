@@ -160,10 +160,20 @@ def load_command(scenarios_path: str = None, skip_setup: bool = False):
                 # Check if guide needs rebuilding based on hash
                 glyph_file_path = f"{scenarios_dir}/{scenario.name}.glyph"
                 if caching_system.should_rebuild_guide(scenario.name, glyph_file_path, force=False):
-                    # Generate action list using LLM with scenario summaries context
-                    logger.info("Generating action list...")
-                    actions = scenario.list_actions(llm_provider, template_manager, scenario_summaries)
-                    logger.info(f"Generated {len(actions)} actions")
+                    # Generate step list using LLM with scenario summaries context
+                    logger.info("Parsing scenario into steps...")
+                    step_list = scenario.parse_steps(llm_provider, template_manager, scenario_summaries)
+                    logger.info(f"Generated {len(step_list)} steps ({len(step_list.get_actions())} actions, {len(step_list.get_checks())} checks)")
+                    
+                    # Convert steps to formatted strings for guide storage
+                    from core.steps import Action, Check
+                    actions = []
+                    for step in step_list:
+                        if isinstance(step, Action):
+                            actions.append(f"action: {step.description}")
+                        elif isinstance(step, Check):
+                            prefix = "check: " if step.is_explicit else "baseline: "
+                            actions.append(f"{prefix}{step.description}")
                     
                     # Create guide object and save as JSON
                     from core.models import Guide
