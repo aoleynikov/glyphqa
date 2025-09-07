@@ -504,6 +504,55 @@ def visualize_command(scenario_name: str = None, tree: bool = False):
         sys.exit(1)
 
 
+def test_command(scenario_file: str = None):
+    """Run Playwright tests with optional scenario filter."""
+    try:
+        import subprocess
+        import os
+        
+        # Check if .glyph directory exists
+        if not os.path.exists('.glyph'):
+            logger.error("❌ No .glyph directory found. Run 'glyph build' first to generate tests.")
+            sys.exit(1)
+        
+        # Check if tests directory exists
+        if not os.path.exists('.glyph/tests'):
+            logger.error("❌ No tests directory found. Run 'glyph build' first to generate tests.")
+            sys.exit(1)
+        
+        # Build the test command
+        test_cmd = ['npm', 'test']
+        
+        # Add scenario filter if specified
+        if scenario_file:
+            # Remove .glyph extension if present
+            scenario_name = scenario_file.replace('.glyph', '')
+            test_file = f"{scenario_name}.spec.js"
+            test_cmd.append(test_file)
+            logger.info(f"🧪 Running tests for scenario: {scenario_name}")
+        else:
+            logger.info("🧪 Running all tests")
+        
+        # Change to .glyph directory and run tests
+        original_dir = os.getcwd()
+        os.chdir('.glyph')
+        
+        try:
+            # Run the test command and proxy stdout/stderr
+            result = subprocess.run(test_cmd, capture_output=False)
+            return result.returncode
+        finally:
+            # Always return to original directory
+            os.chdir(original_dir)
+            
+    except FileNotFoundError:
+        logger.error("❌ npm not found. Make sure Node.js and npm are installed.")
+        sys.exit(1)
+    except Exception as e:
+        logger.error(f"❌ Test execution failed: {e}")
+        sys.exit(1)
+
+
 def main():
     parser = argparse.ArgumentParser(description='GlyphQA - LLM-powered test automation framework')
     subparsers = parser.add_subparsers(dest='command', help='Available commands')
@@ -530,6 +579,10 @@ def main():
     visualize_parser.add_argument('--scenario', help='Focus on specific scenario')
     visualize_parser.add_argument('--tree', action='store_true', help='Show dependency tree instead of graph')
     
+    # Test command
+    test_parser = subparsers.add_parser('test', help='Run Playwright tests')
+    test_parser.add_argument('--scenario', help='Run tests for specific scenario file')
+    
     args = parser.parse_args()
     
     if args.command == 'init':
@@ -542,6 +595,8 @@ def main():
         purge_command()
     elif args.command == 'visualize':
         visualize_command(args.scenario, args.tree)
+    elif args.command == 'test':
+        test_command(args.scenario)
     else:
         parser.print_help()
 
