@@ -152,8 +152,8 @@ class HashCachingSystem:
     
 
     
-    def purge_cached_knowledge(self, system_state_manager):
-        """Purge all cached knowledge by removing all guides and glyph.md."""
+    def purge_cached_knowledge(self):
+        """Purge all cached knowledge by removing all guides."""
         logger.info("🧹 Purging all cached knowledge")
         
         # Remove all guide files
@@ -162,10 +162,6 @@ class HashCachingSystem:
             for guide_file in guides_dir.glob("*.guide"):
                 guide_file.unlink()
                 logger.debug(f"Removed guide: {guide_file}")
-        
-        # Reset glyph.md to initial state using SystemStateManager
-        system_state_manager.reset_to_initial()
-        logger.debug(f"Reset glyph.md using SystemStateManager")
         
         logger.info("✅ Purge completed - system ready for fresh learning")
     

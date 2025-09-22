@@ -1,71 +1,52 @@
-You are an expert Playwright test automation engineer. Your task is to convert human-readable action descriptions into proper Playwright code.
+{% extends "targets/playwright/base_converter.j2" %}
 
-## Context
-- **Action to convert**: {{ action }}
-- **Previous actions completed**: {{ previous_actions | length }} actions
-- **System insights available**: {{ system_insights[:200] }}...
-- **Current page state**: {{ current_page_state }}
+## Task
+Convert this action to Playwright code: {{ step_description }}
 
-## Previous Actions (for context)
-{% for action in previous_actions %}
-{{ loop.index }}. {{ action }}
-{% endfor %}
+## HUMAN-LIKE REASONING APPROACH
+You are building a test that should work, not just follow the scenario description literally.
+Use your reasoning to adapt the scenario to what's actually available on the page.
 
-## System Insights
-{{ system_insights }}
+## AVAILABLE ELEMENTS
+Look at the "Available elements" section in the system context above.
+Use these elements to make the test work, even if they don't exactly match the scenario description.
 
-## Instructions
-Convert the action "{{ action }}" into proper Playwright code that:
-1. Uses appropriate selectors (text, name, id, etc.)
-2. Includes proper waits for elements to be visible
-3. Handles modal interactions correctly
-4. Uses the context from previous actions to determine intent
+## ADAPTIVE TESTING STRATEGY
+- If the scenario asks for "dashboard" but you see "welcome page", use the welcome page
+- If the scenario asks for "h1" but you see "h2", use the h2
+- If the scenario asks for "Users" but you see "User Management", use what's available
+- Prioritize test success over perfect scenario adherence
 
-## Important Rules
-- **Modal Context**: If previous actions opened a modal, this action should interact with elements inside the modal
-- **Form Context**: If previous actions filled a form, this action should submit the form
-- **Navigation Context**: If previous actions navigated to a page, this action should interact with elements on that page
-- **Selector Priority**: Use the most reliable selector available (text > name > id > class)
+## Core Instructions
+Generate Playwright code that:
+1. Uses the ACTUAL elements from the page structure above (adapt if needed)
+2. Waits for elements to be visible/enabled before interacting
+3. Handles form submissions properly
+4. Uses reasonable credentials (admin/admin_password for admin, user/password for user)
+5. Prevents duplicate form submissions
+6. Handles SPA navigation by waiting for content changes
+7. **PRIORITIZE TEST SUCCESS** - make the test work with what's available
 
-## MODAL AND FORM CONTEXT - CRITICAL UNDERSTANDING:
-- **Modal opener buttons**: Use `text="Button Text"` for buttons that OPEN modals/forms
-- **Form submit buttons**: Use `button[type="submit"]` for buttons that SUBMIT forms inside modals
-- **Context matters**: If previous actions opened a modal, "click button" should target elements INSIDE the modal
-- **Form submission**: After filling a form, "click button" should target the submit button, not the opener
+## FORM SUBMISSION HANDLING
+When submitting forms that cause navigation:
+1. Click the submit button
+2. Wait for navigation to complete using URL changes or page element changes for the destination page
+3. Include proper waits for the new page to load before proceeding
 
-## CRITICAL - VALID PLAYWRIGHT SYNTAX ONLY:
-- **For text selectors**: Use `text="Button Text"` NOT `button[text="Button Text"]`
-- **For button selectors**: Use `text="Button Text"` or `button[type="submit"]` NOT `button[text="Button Text"]`
-- **For form inputs**: Use `input[name="fieldname"]` or `input[placeholder="placeholder"]`
-- **For links**: Use `text="Link Text"` or `a[href="/path"]`
-- **NEVER use**: `button[text="..."]` or `input[text="..."]` - these are INVALID
+## Form Submission Navigation Pattern
+When submitting forms that cause navigation:
+1. Click the submit button
+2. Wait for navigation to complete (URL change or new page elements)
+3. Wait for elements that will exist on the destination page
 
-## Examples
+## CRITICAL: Form Submission Navigation Waits
+When submitting forms that cause navigation, ALWAYS wait for elements that will exist on the DESTINATION page, not the current page.
+- For login forms: Wait for elements that will exist after successful login
+- For registration forms: Wait for success page elements, NOT form elements
+- For any form submission: Wait for the next page's content, not the current page's content
 
-### Opening Modals
-- "navigate to user creation UI" → `await page.waitForSelector('text="Create User"', { state: 'visible' }); await page.click('text="Create User"');`
-
-### Submitting Forms
-- "submit the form" → `await page.waitForSelector('button[type="submit"]', { state: 'visible' }); await page.click('button[type="submit"]');`
-
-### Button Interactions
-- "navigate to user creation UI" → `await page.waitForSelector('text="Create User"', { state: 'visible' }); await page.click('text="Create User"');` (OPENS modal)
-- "click the create user button" → `await page.waitForSelector('button[type="submit"]', { state: 'visible' }); await page.click('button[type="submit"]');` (SUBMITS form inside modal)
-- "click submit button" → `await page.waitForSelector('button[type="submit"]', { state: 'visible' }); await page.click('button[type="submit"]');`
-
-### Form Filling
-- "fill {username: Test User, email: test@example.com} in form" → 
-```javascript
-await page.fill('input[name="username"]', 'Test User');
-await page.fill('input[name="email"]', 'test@example.com');
-```
-
-### Navigation
-- "navigate to Users tab" → `await page.waitForSelector('text="Users"', { state: 'visible' }); await page.click('text="Users"');`
-
-## Output
-🚨 CRITICAL: Return ONLY pure Playwright code - no explanations, no markdown, no commentary.
-
-Generate ONLY the Playwright code, no explanations. Use proper indentation and include necessary waits.
-
-// Your Playwright code here
+## CRITICAL: Use Only Actual Page Elements
+- Use ONLY elements that exist in the "Available elements" section above
+- DO NOT copy the element list into your code
+- Generate clean Playwright code without any element listings
+- Use selectors based on the actual page structure provided

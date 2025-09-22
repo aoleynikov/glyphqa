@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 from typing import Optional, Dict, Any
 import logging
+import openai
 from .exceptions import LLMError
 
 logger = logging.getLogger(__name__)
@@ -29,12 +30,16 @@ class OpenAIProvider(LLMProvider):
     """OpenAI implementation of the LLM provider."""
     
     def __init__(self, config: Dict[str, Any]):
-        import openai
         import os
         api_key = config.get('key') or os.getenv('OPENAI_API_KEY')
         if not api_key:
             raise LLMError("OpenAI API key not found in config or environment")
-        self.client = openai.OpenAI(api_key=api_key)
+        
+        # Disable retries - fail fast on any error
+        self.client = openai.OpenAI(
+            api_key=api_key,
+            max_retries=0
+        )
         self.model = config.get('model', 'gpt-4o-mini')
         self.vision_model = config.get('vision_model', 'gpt-4o')
     
@@ -59,21 +64,14 @@ class OpenAIProvider(LLMProvider):
             messages.append({"role": "user", "content": user_prompt})
             model = self.model
         
-        try:
-            response = self.client.chat.completions.create(
-                model=model,
-                messages=messages
-            )
-            content = response.choices[0].message.content
-            if content is None:
-                raise LLMError("OpenAI returned empty response")
-            return content.strip()
-        except openai.OpenAIError as e:
-            logger.error(f"OpenAI API error: {e}")
-            raise LLMError(f"OpenAI API error: {e}") from e
-        except Exception as e:
-            logger.error(f"Unexpected error in OpenAI API call: {e}")
-            raise LLMError(f"Unexpected error in OpenAI API call: {e}") from e
+        response = self.client.chat.completions.create(
+            model=model,
+            messages=messages
+        )
+        content = response.choices[0].message.content
+        if content is None:
+            raise LLMError("OpenAI returned empty response")
+        return content.strip()
 
 
 class MockLLMProvider(LLMProvider):

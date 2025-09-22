@@ -1,0 +1,8 @@
+Login as admin
+Go to user management
+Create an admin with unique credentials
+log in as this user
+verify you logged in successfully
+log in as the previous admin again
+delete the user we just created
+when you log in as this user, you should get an error

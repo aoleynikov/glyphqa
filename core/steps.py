@@ -33,7 +33,7 @@ class Action(Step):
     def to_playwright(self, llm_provider=None, template_manager=None) -> str:
         """Convert action to Playwright code using LLM."""
         if llm_provider and template_manager:
-            # Use LLM to generate Playwright code
+            # Use LLM to generate Playwright code with split prompts
             context = {
                 'action_type': self.action_type,
                 'description': self.description,
@@ -41,7 +41,8 @@ class Action(Step):
                 'data': self.data
             }
             system_prompt = template_manager.get_playwright_template("action_converter", **context)
-            return llm_provider.generate(system_prompt, self.description)
+            user_prompt = template_manager.get_playwright_template("action_converter_user", **context)
+            return llm_provider.generate(system_prompt, user_prompt)
         else:
             # Fallback for when LLM is not available
             return f'// TODO: Implement {self.action_type} for {self.target}'
@@ -77,7 +78,8 @@ class Check(Step):
                 context['page_analysis'] = page_analysis
             
             system_prompt = template_manager.get_playwright_template("check_converter", **context)
-            return llm_provider.generate(system_prompt, self.description)
+            user_prompt = template_manager.get_playwright_template("check_converter_user", **context)
+            return llm_provider.generate(system_prompt, user_prompt)
         else:
             # Fallback for when LLM is not available
             return f'// TODO: Implement {self.check_type} check for {self.target}'
@@ -85,6 +87,36 @@ class Check(Step):
     def __repr__(self):
         explicit_flag = "explicit" if self.is_explicit else "baseline"
         return f"Check({self.check_type}, {explicit_flag}: {self.description})"
+
+
+class Precondition(Step):
+    """Represents a precondition that must be met before the scenario starts."""
+    
+    def __init__(self, description: str, precondition_type: str, role: str = None, target: str = None):
+        super().__init__(description, "precondition")
+        self.precondition_type = precondition_type
+        self.role = role or ""
+        self.target = target or ""
+    
+    def to_playwright(self, llm_provider=None, template_manager=None) -> str:
+        """Convert precondition to Playwright code using LLM."""
+        if llm_provider and template_manager:
+            # Use LLM to generate Playwright code for the precondition
+            context = {
+                'precondition_type': self.precondition_type,
+                'description': self.description,
+                'role': self.role,
+                'target': self.target
+            }
+            system_prompt = template_manager.get_playwright_template("precondition_converter", **context)
+            user_prompt = template_manager.get_playwright_template("precondition_converter_user", **context)
+            return llm_provider.generate(system_prompt, user_prompt)
+        else:
+            # Fallback for when LLM is not available
+            return f'// TODO: Implement precondition {self.precondition_type} for {self.target}'
+    
+    def __repr__(self):
+        return f"Precondition({self.precondition_type}, role={self.role}: {self.description})"
 
 
 class StepList:
@@ -104,6 +136,12 @@ class StepList:
         check = Check(description, check_type, target, expected, is_explicit)
         self.steps.append(check)
         return check
+    
+    def add_precondition(self, description: str, precondition_type: str, role: str = None, target: str = None):
+        """Add a precondition step."""
+        precondition = Precondition(description, precondition_type, role, target)
+        self.steps.append(precondition)
+        return precondition
     
     def add_baseline_checks(self):
         """Add baseline technical checks to the step list."""
@@ -131,6 +169,10 @@ class StepList:
     def get_baseline_checks(self) -> list:
         """Get only baseline check steps."""
         return [step for step in self.steps if isinstance(step, Check) and not step.is_explicit]
+    
+    def get_preconditions(self) -> list:
+        """Get all precondition steps."""
+        return [step for step in self.steps if isinstance(step, Precondition)]
     
     def to_playwright(self, llm_provider=None, template_manager=None) -> str:
         """Convert all steps to Playwright code."""

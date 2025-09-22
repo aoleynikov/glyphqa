@@ -1,0 +1,30 @@
+## SDK Build Context
+
+### Available Functions
+{{ sdk_context.function_catalog }}
+
+### Function Imports
+```javascript
+{{ sdk_context.function_imports }}
+```
+
+### Usage Examples
+{% for func_name, example in sdk_context.usage_examples.items() %}
+- **{{ func_name }}**: `{{ example }}`
+{% endfor %}
+
+### Module Structure
+{% for module_name, functions in sdk_context.module_structure.items() %}
+- **{{ module_name }}**: {{ functions|join(', ') }}
+{% endfor %}
+
+### Function Dependencies
+{% for func_name, deps in sdk_context.dependencies.items() %}
+- **{{ func_name }}** depends on: {{ deps|join(', ') }}
+{% endfor %}
+
+## Usage Guidelines
+- Use the provided import statements to access SDK functions
+- Follow the usage examples for correct function calls
+- Check dependencies before using functions
+- Use function names exactly as provided in the catalog

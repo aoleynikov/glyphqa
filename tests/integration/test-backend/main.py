@@ -137,8 +137,10 @@ def init_test_users():
 # Startup event
 @app.on_event("startup")
 async def startup_event():
-    # Create unique index on username
+
+    # Create unique indexes on username and email
     users_collection.create_index("username", unique=True)
+    users_collection.create_index("email", unique=True)
     # Initialize test users
     init_test_users()
 
@@ -171,11 +173,24 @@ async def create_user(user: UserCreate):
         # Remove password from response
         del user_data["password"]
         return UserResponse(**user_data)
-    except DuplicateKeyError:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Username already exists"
-        )
+    except DuplicateKeyError as e:
+        # Check which field caused the duplicate key error
+        error_message = str(e)
+        if "username" in error_message:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Username already exists"
+            )
+        elif "email" in error_message:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Email already exists"
+            )
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="User with this information already exists"
+            )
 
 @app.get("/users/me", response_model=UserResponse)
 async def get_current_user_info(current_user = Depends(get_current_user)):
@@ -199,6 +214,48 @@ async def get_users(current_user = Depends(get_current_user)):
         user["id"] = str(user["_id"])
         users.append(UserResponse(**user))
     return users
+
+@app.delete("/users/{user_id}")
+async def delete_user(user_id: str, current_user = Depends(get_current_user)):
+    if current_user["role"] != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin access required"
+        )
+    
+    # Check if user exists
+    from bson import ObjectId
+    try:
+        user_object_id = ObjectId(user_id)
+    except:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid user ID format"
+        )
+    
+    user_to_delete = users_collection.find_one({"_id": user_object_id})
+    if not user_to_delete:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
+    
+    # Prevent admin from deleting themselves
+    if user_to_delete["username"] == current_user["username"]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot delete your own account"
+        )
+    
+    # Delete the user
+    result = users_collection.delete_one({"_id": user_object_id})
+    if result.deleted_count == 0:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
+    
+    return {"message": "User deleted successfully"}
 
 @app.get("/health")
 async def health_check():

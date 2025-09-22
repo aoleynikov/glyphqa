@@ -1,0 +1,24 @@
+import { test, expect } from '@playwright/test';
+
+// Main SDK entry point
+// Generated automatically - do not edit manually
+
+{% for module_name, functions in modules.items() %}
+{% if functions %}
+// ===== {{ module_name.upper() }} MODULE =====
+{% for function in functions %}
+// {{ function.name }} - {{ function.summary or 'No description available' }}
+{{ function.to_composable_js() }}
+
+{% endfor %}
+{% endif %}
+{% endfor %}
+
+// ===== MAIN EXPORTS =====
+export {
+{% for module_name, functions in modules.items() %}
+{% for function in functions %}
+    {{ function.name }}{% if not loop.last %},{% endif %}
+{% endfor %}
+{% endfor %}
+};

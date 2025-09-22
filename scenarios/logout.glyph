@@ -1,2 +1,2 @@
-Click the logout button in the navigation bar
-You should be taken back to the login page
+you should be logged in
+when you click logout in nav bar, you are logged out and taken to login form

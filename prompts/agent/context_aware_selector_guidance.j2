@@ -1,0 +1,36 @@
+Analyze this test step and provide the top 10 most relevant HTML5 selectors for Playwright automation:
+
+Step: "{{ current_step }}"
+
+Based on the step description, identify the most likely HTML elements that would be needed and provide exactly 10 selectors in this format:
+
+SELECTOR_CONTEXT: [Brief context description]
+1. selector1 (for element type)
+2. selector2 (for element type)
+3. selector3 (for element type)
+...
+10. selector10 (for element type)
+
+CRITICAL RULES:
+- Use ONLY standard HTML5 semantic selectors
+- Use ONLY attribute selectors like [name="..."], [type="..."], [role="..."]
+- Use ONLY text selectors like text="..."
+- NEVER use ID selectors like #anything
+- NEVER use data-testid selectors like [data-testid="..."]
+- NEVER invent made-up selectors
+- Focus on the most common and reliable selectors for this type of step
+
+Examples of GOOD selectors:
+- input[name="username"]
+- button[type="submit"]
+- text="Login"
+- nav
+- form
+- select
+- textarea
+
+Examples of BAD selectors (DO NOT USE):
+- #username
+- [data-testid="login"]
+- #submit
+- .login-button

@@ -8,244 +8,12 @@ from pathlib import Path
 from core.container import create_container
 from core.models import Scenario
 
+
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(message)s')
 logger = logging.getLogger(__name__)
 
-
-def analyze_guide_patterns(guides_dir: str, filesystem, llm_provider, template_manager) -> dict:
-    """Analyze guide files to identify common patterns for SDK design using LLM."""
-    try:
-        guide_files = filesystem.glob(f"{guides_dir}/*.guide")
-        all_guides_data = []
-        
-        # Load all guide data
-        for guide_file in guide_files:
-            try:
-                with open(guide_file, 'r') as f:
-                    guide_data = json.load(f)
-                    all_guides_data.append(guide_data)
-            except Exception as e:
-                logger.warning(f"Failed to load guide {guide_file}: {e}")
-        
-        if not all_guides_data:
-            logger.warning("No guide data to analyze")
-            return {}
-        
-        # Let the LLM analyze the patterns using template
-        logger.info("Using LLM to analyze patterns with template...")
-        
-        # Use template for pattern analysis
-        template_path = 'pattern_analysis.j2'
-        prompt = template_manager.render_template(template_path, guide_data=json.dumps(all_guides_data, indent=2))
-        logger.info("Successfully rendered pattern analysis template")
-        
-        # Get LLM analysis
-        response = llm_provider.generate(prompt, "pattern_analysis")
-        
-        # Return the LLM's analysis as a simple dict
-        return {
-            'llm_analysis': response,
-            'guide_count': len(all_guides_data),
-            'raw_guides': all_guides_data
-        }
-        
-    except Exception as e:
-        logger.warning(f"Failed to analyze guides: {e}")
-        return {}
-
-
-def load_command(scenarios_path: str = None, skip_setup: bool = False):
-    """Load scenarios and convert them to .guide files with action lists."""
-    try:
-        # Create DI container
-        container = create_container()
-        config = container.get('config')
-        filesystem = container.get('filesystem')
-        llm_provider = container.get('llm_provider')
-        template_manager = container.get('template_manager')
-        
-        logger.info(f"Successfully loaded config from glyph.config.yml")
-        
-        # Create .glyph/guides directory (skip if called from build process)
-        if not skip_setup:
-            guides_dir = '.glyph/guides'
-            filesystem.mkdir(guides_dir, parents=True, exist_ok=True)
-            logger.info(f"Created guides directory: {guides_dir}")
-        else:
-            guides_dir = '.glyph/guides'
-        
-        # Load all scenarios from the specified directory
-        scenarios_dir = scenarios_path or 'scenarios'
-        if not filesystem.exists(scenarios_dir):
-            logger.error(f"Error: Scenarios directory '{scenarios_dir}' not found")
-            sys.exit(1)
-        if not filesystem.is_dir(scenarios_dir):
-            logger.error(f"Error: '{scenarios_dir}' is not a directory")
-            sys.exit(1)
-        
-        glyph_files = filesystem.glob(f"{scenarios_dir}/*.glyph")
-        if not glyph_files:
-            logger.warning(f"No .glyph files found in '{scenarios_dir}'")
-            return
-        
-        logger.info(f"Found {len(glyph_files)} .glyph files")
-        
-        # Step 1: Load all scenarios
-        all_scenarios = []
-        for glyph_file in glyph_files:
-            try:
-                scenario = Scenario.from_file(glyph_file, filesystem)
-                all_scenarios.append(scenario)
-                logger.info(f"Loaded scenario: {scenario.name}")
-            except Exception as e:
-                logger.error(f"❌ Failed to load {filesystem.get_name(glyph_file)}: {e}")
-        
-        if not all_scenarios:
-            logger.error("No scenarios could be loaded")
-            sys.exit(1)
-        
-        # Step 2: Generate summaries for all scenarios with caching
-        logger.info("\n--- Generating scenario summaries ---")
-        scenario_summaries = {}
-        
-        # Get caching system for hash-based summary rebuild prevention
-        caching_system = container.get('hash_caching')
-        from core.hash_caching import calculate_glyph_hash
-        import json
-        
-        for scenario in all_scenarios:
-            try:
-                logger.info(f"Summarizing {scenario.name}...")
-                
-                # Check if we have a cached summary
-                glyph_file_path = f"{scenarios_dir}/{scenario.name}.glyph"
-                cached_guide = caching_system.load_guide(scenario.name)
-                
-                if cached_guide and cached_guide.glyph_hash == calculate_glyph_hash(glyph_file_path, filesystem):
-                    # Use cached summary from the guide file
-                    guide_file = f"{guides_dir}/{scenario.name}.guide"
-                    if filesystem.exists(guide_file):
-                        try:
-                            guide_content = filesystem.read_text(guide_file)
-                            guide_data = json.loads(guide_content)
-                            summary = guide_data.get('summary', f"Scenario: {scenario.name}")
-                            scenario_summaries[scenario.name] = summary
-                            logger.info(f"✅ Using cached summary for {scenario.name}")
-                            continue
-                        except Exception as e:
-                            logger.warning(f"Failed to load cached summary for {scenario.name}: {e}")
-                
-                # Generate new summary using LLM
-                summary = scenario.summarize(llm_provider, template_manager)
-                scenario_summaries[scenario.name] = summary
-                logger.info(f"  Summary: {summary}")
-                
-            except Exception as e:
-                logger.error(f"❌ Failed to summarize {scenario.name}: {e}")
-                # Use a fallback summary
-                scenario_summaries[scenario.name] = f"Scenario: {scenario.name}"
-        
-        # Step 3: Generate action lists using the summary dictionary with caching
-        logger.info("\n--- Generating action lists ---")
-        successful_loads = 0
-        
-        # Get caching system for hash-based guide rebuild prevention
-        caching_system = container.get('hash_caching')
-        
-        for scenario in all_scenarios:
-            try:
-                logger.info(f"\n--- Loading {scenario.name} ---")
-                
-                # Check if guide needs rebuilding based on hash
-                glyph_file_path = f"{scenarios_dir}/{scenario.name}.glyph"
-                if caching_system.should_rebuild_guide(scenario.name, glyph_file_path, force=False):
-                    # Generate step list using LLM with scenario summaries context
-                    logger.info("Parsing scenario into steps...")
-                    step_list = scenario.parse_steps(llm_provider, template_manager, scenario_summaries)
-                    logger.info(f"Generated {len(step_list)} steps ({len(step_list.get_actions())} actions, {len(step_list.get_checks())} checks)")
-                    
-                    # Convert steps to formatted strings for guide storage
-                    from core.steps import Action, Check
-                    actions = []
-                    for step in step_list:
-                        if isinstance(step, Action):
-                            actions.append(f"action: {step.description}")
-                        elif isinstance(step, Check):
-                            prefix = "check: " if step.is_explicit else "baseline: "
-                            actions.append(f"{prefix}{step.description}")
-                    
-                    # Create guide object and save as JSON
-                    from core.models import Guide
-                    guide = Guide(
-                        name=scenario.name,
-                        original_scenario=f"{scenario.name}.glyph",
-                        actions=actions
-                    )
-                    
-                    guide_file = f"{guides_dir}/{scenario.name}.guide"
-                    guide.save(guide_file, filesystem)
-                    
-                    # Add summary and hash information to the guide file for caching
-                    try:
-                        from datetime import datetime
-                        guide_content = filesystem.read_text(guide_file)
-                        guide_data = json.loads(guide_content)
-                        guide_data['summary'] = scenario_summaries.get(scenario.name, f"Scenario: {scenario.name}")
-                        guide_data['glyph_hash'] = calculate_glyph_hash(glyph_file_path, filesystem)
-                        guide_data['built_at'] = datetime.now().isoformat()
-                        filesystem.write_text(guide_file, json.dumps(guide_data, indent=2))
-                    except Exception as e:
-                        logger.warning(f"Failed to save summary and hash to guide file for {scenario.name}: {e}")
-                    
-                    logger.info(f"✅ Saved guide: {guide_file}")
-                    successful_loads += 1
-                else:
-                    logger.info(f"✅ Guide up to date for {scenario.name}")
-                    successful_loads += 1
-                
-            except Exception as e:
-                logger.error(f"❌ Failed to load {scenario.name}: {e}")
-        
-        # Step 4: Analyze patterns and update glyph.md
-        logger.info("\n--- Analyzing patterns and updating glyph.md ---")
-        try:
-            from core.scenario_builder import SystemStateManager
-            from core.system_state_storage_manager import SystemStateStorageManager
-            
-            # Create system state manager
-            system_state = SystemStateStorageManager('.glyph')
-            system_state_manager = SystemStateManager(system_state, llm_provider, template_manager)
-            
-            # Analyze patterns from generated guides
-            logger.info("Analyzing patterns from guides...")
-            pattern_analysis = analyze_guide_patterns(guides_dir, filesystem, llm_provider, template_manager)
-            
-            # Update glyph.md with pattern analysis
-            logger.info("Updating glyph.md with pattern analysis...")
-            system_state_manager.update_glyph_md_with_patterns(pattern_analysis)
-            
-            logger.info("✅ Successfully updated glyph.md with pattern analysis")
-            
-        except Exception as e:
-            logger.error(f"❌ Failed to update glyph.md: {e}")
-            logger.warning("Continuing without pattern analysis...")
-        
-        # Summary
-        total_scenarios = len(all_scenarios)
-        if successful_loads == total_scenarios:
-            logger.info(f"\n🎉 Successfully loaded all {total_scenarios} scenarios!")
-        else:
-            logger.warning(f"\n⚠️  Loaded {successful_loads}/{total_scenarios} scenarios")
-            if successful_loads < total_scenarios:
-                sys.exit(1)
-                
-    except Exception as e:
-        logger.error(f"❌ Load failed: {e}")
-        sys.exit(1)
-
-
-def build_command(scenarios_path: str = None, scenario_file: str = None, debug_stop: int = None, purge: bool = False):
+def build_command(scenarios_path: str = None, scenario_file: str = None, debug_stop: int = None, purge: bool = False, verbose: bool = False, quiet: bool = False):
     """Build Playwright tests from scenarios."""
     try:
         # Create DI container
@@ -255,13 +23,33 @@ def build_command(scenarios_path: str = None, scenario_file: str = None, debug_s
         scenario_builder = container.get('scenario_builder')
         filesystem = container.get('filesystem')
         
+        # Configure output verbosity
+        from core.build_output_manager import build_output, OutputLevel
+        if quiet:
+            build_output.set_level(OutputLevel.QUIET)
+        elif verbose:
+            build_output.set_level(OutputLevel.VERBOSE)
+        else:
+            build_output.set_level(OutputLevel.NORMAL)
+        
         logger.info(f"Initialized target: {target.name}")
         
         logger.info("Setting up test environment...")
         target.init()
         
-        # Load all available scenarios
+        # Determine scenarios directory and specific scenario
         scenarios_dir = scenarios_path or 'scenarios'
+        
+        # Check if scenarios_path is a file (specific scenario)
+        if scenarios_path and scenarios_path.endswith('.glyph'):
+            # scenarios_path is a specific scenario file
+            scenario_file = scenarios_path
+            # Find the directory containing this file
+            scenarios_dir = str(Path(scenarios_path).parent)
+            if scenarios_dir == '.':
+                scenarios_dir = 'scenarios'  # Default if in current directory
+        
+        # Validate scenarios directory
         if not filesystem.exists(scenarios_dir):
             logger.error(f"Error: Scenarios directory '{scenarios_dir}' not found")
             sys.exit(1)
@@ -310,26 +98,21 @@ def build_command(scenarios_path: str = None, scenario_file: str = None, debug_s
         if purge:
             logger.info("🧹 Purge requested - removing all cached knowledge")
             caching_system = container.get('hash_caching')
-            system_state_storage_manager = container.get('system_state_storage_manager')
-            caching_system.purge_cached_knowledge(system_state_storage_manager)
-            logger.info("✅ Purge completed - reloading guides for fresh build")
-            
-            # Reload guides after purge
-            logger.info("🔄 Reloading guides after purge...")
-            load_command(scenarios_path, skip_setup=True)
+            caching_system.purge_cached_knowledge()
+            logger.info("✅ Purge completed - agent will analyze scenarios fresh")
         
         # Build scenarios layer by layer using dependency graph with iterative knowledge building
         successful_builds = 0
         
-        # First, ensure we have guides loaded for dependency analysis
-        guides_dir = Path('.glyph/guides')
-        if not guides_dir.exists():
-            logger.error("No guides found. Run 'glyph load' first to create guides for dependency analysis.")
-            sys.exit(1)
+        # Build scenario graph directly from scenarios using agent analysis
+        from core.scenario_graph_agent import ScenarioGraphAgent
+        from core.test_generation_agent import TestGenerationAgent
         
-        # Build scenario graph
-        graph_builder = container.get('scenario_graph_builder')
-        graph = graph_builder.build_graph_from_guides()
+        scenario_builder = container.get('scenario_builder')
+        agent = TestGenerationAgent(scenario_builder)
+        graph_agent = ScenarioGraphAgent(agent)
+        
+        graph = graph_agent.build_graph_from_scenarios(scenarios_path or 'scenarios')
         
         # Get build layers (leaves to root)
         build_layers = graph.get_build_layers()
@@ -338,32 +121,7 @@ def build_command(scenarios_path: str = None, scenario_file: str = None, debug_s
         # For single scenario builds, identify the dependency subtree
         if len(scenarios_to_build) == 1:
             target_scenario = scenarios_to_build[0].name
-            # Get all dependencies recursively (what the target needs)
-            dependencies = set()
-            to_process = [target_scenario]
-            while to_process:
-                current = to_process.pop(0)
-                deps = graph.get_dependencies_for_scenario(current)
-                for dep in deps:
-                    if dep not in dependencies:
-                        dependencies.add(dep)
-                        to_process.append(dep)
-            
-            # Only build layers that contain dependencies or the target
-            dependency_subtree = dependencies | {target_scenario}
-            logger.info(f"🎯 Building dependency subtree for {target_scenario}: {', '.join(sorted(dependency_subtree))}")
-            
-            # Filter build layers to only include dependency subtree
-            filtered_build_layers = []
-            for layer in build_layers:
-                layer_deps = [s for s in layer if s in dependency_subtree]
-                if layer_deps:
-                    filtered_build_layers.append(layer_deps)
-                else:
-                    logger.info(f"⏭️  Skipping layer {', '.join(layer)} (not in dependency subtree)")
-            
-            build_layers = filtered_build_layers
-            logger.info(f"📊 Filtered to {len(build_layers)} dependency layers")
+            build_layers = graph_agent.filter_build_layers_for_target(graph, target_scenario)
         
         # Build scenarios layer by layer with iterative knowledge building
         for layer_index, layer in enumerate(build_layers, 1):
@@ -422,14 +180,6 @@ def build_command(scenarios_path: str = None, scenario_file: str = None, debug_s
                     logger.error(f"❌ Failed to build {scenario_name}: {e}")
                     # Continue with other scenarios in the layer
             
-                    # After building this layer, reload guides with updated system knowledge
-        if layer_index < len(build_layers):
-            logger.info(f"\n🔄 Reloading guides with updated system knowledge after Layer {layer_index}...")
-            load_command(scenarios_path, skip_setup=True)
-            
-            # Rebuild the graph with updated guides
-            graph_builder = container.get('scenario_graph_builder')
-            graph = graph_builder.build_graph_from_guides()
         
         # Summary
         total_scenarios = len(scenarios_to_build)
@@ -439,6 +189,10 @@ def build_command(scenarios_path: str = None, scenario_file: str = None, debug_s
             logger.warning(f"\n⚠️  Built {successful_builds}/{total_scenarios} scenarios")
             if successful_builds < total_scenarios:
                 sys.exit(1)
+        
+        # Show build summary
+        from core.build_output_manager import build_output
+        build_output.build_summary(total_scenarios, successful_builds)
     except Exception as e:
         logger.error(f"❌ Build failed: {e}")
         sys.exit(1)
@@ -468,19 +222,11 @@ def purge_command():
         # Create DI container
         container = create_container()
         caching_system = container.get('hash_caching')
-        system_state_storage_manager = container.get('system_state_storage_manager')
         
         logger.info("🧹 Purging cached knowledge...")
         
         # Purge cached knowledge
-        caching_system.purge_cached_knowledge(system_state_storage_manager)
-        
-        # Remove glyph.md if it exists
-        filesystem = container.get('filesystem')
-        glyph_md_path = '.glyph/glyph.md'
-        if filesystem.exists(glyph_md_path):
-            filesystem.unlink(glyph_md_path)
-            logger.info("🗑️  Removed glyph.md")
+        caching_system.purge_cached_knowledge()
         
         logger.info("✅ Cache purged successfully!")
         
@@ -492,15 +238,16 @@ def purge_command():
 def visualize_command(scenario_name: str = None, tree: bool = False):
     """Visualize the scenario dependency graph."""
     try:
-        from core.scenario_graph import ScenarioGraphBuilder
+        from core.scenario_graph_agent import ScenarioGraphAgent
+        from core.test_generation_agent import TestGenerationAgent
         
-        guides_dir = Path('.glyph/guides')
-        if not guides_dir.exists():
-            logger.error("No guides found. Run 'glyph load' first.")
-            sys.exit(1)
+        # Create agent instance
+        container = create_container()
+        scenario_builder = container.get('scenario_builder')
+        agent = TestGenerationAgent(scenario_builder)
+        graph_agent = ScenarioGraphAgent(agent)
         
-        builder = ScenarioGraphBuilder(guides_dir)
-        graph = builder.build_graph_from_guides()
+        graph = graph_agent.build_graph_from_scenarios('scenarios')
         
         if tree and scenario_name:
             print(graph.visualize_dependency_tree(scenario_name))
@@ -570,16 +317,15 @@ def main():
     # Init command
     init_parser = subparsers.add_parser('init', help='Initialize the project structure')
     
-    # Load command
-    load_parser = subparsers.add_parser('load', help='Load scenarios and convert to .guide files')
-    load_parser.add_argument('--scenarios', help='Path to scenarios directory (default: scenarios/)')
     
     # Build command
-    build_parser = subparsers.add_parser('build', help='Build Playwright tests from scenarios')
-    build_parser.add_argument('--scenarios', help='Path to scenarios directory (default: scenarios/)')
-    build_parser.add_argument('--scenario', help='Build specific scenario file')
+    build_parser = subparsers.add_parser('build', help='Build Playwright tests from scenarios using step mapping approach')
+    build_parser.add_argument('scenarios_path', nargs='?', default='scenarios', help='Path to scenarios directory or specific scenario file (default: scenarios/)')
+    build_parser.add_argument('--scenario', help='Build specific scenario file (deprecated, use scenarios_path instead)')
     build_parser.add_argument('--debug-stop', type=int, help='Stop at specific action number for debugging')
     build_parser.add_argument('--purge', action='store_true', help='Remove all cached knowledge and start fresh')
+    build_parser.add_argument('--verbose', '-v', action='store_true', help='Verbose output with detailed debugging information')
+    build_parser.add_argument('--quiet', '-q', action='store_true', help='Quiet output - only show errors and final results')
     
     # Purge command
     purge_parser = subparsers.add_parser('purge', help='Purge all cached knowledge and start fresh')
@@ -597,10 +343,17 @@ def main():
     
     if args.command == 'init':
         init_command()
-    elif args.command == 'load':
-        load_command(args.scenarios)
     elif args.command == 'build':
-        build_command(args.scenarios, args.scenario, args.debug_stop, args.purge)
+        # Handle both new scenarios_path and deprecated --scenario argument
+        scenarios_path = args.scenarios_path
+        scenario_file = args.scenario
+        
+        # If scenarios_path is a file, treat it as a specific scenario
+        if scenarios_path and scenarios_path.endswith('.glyph'):
+            scenario_file = scenarios_path
+            scenarios_path = None  # Will use default scenarios directory
+        
+        build_command(scenarios_path, scenario_file, args.debug_stop, args.purge, args.verbose, args.quiet)
     elif args.command == 'purge':
         purge_command()
     elif args.command == 'visualize':

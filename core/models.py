@@ -2,7 +2,6 @@ from typing import Any, Dict, Optional, List
 from pathlib import Path
 import logging
 import json
-from .constants import Constants
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +39,7 @@ class Scenario:
                         'description': summary
                     })
         
-        system_prompt = template_manager.get_scenario_template(Constants.LIST_ACTIONS_TEMPLATE, available_scenarios=scenarios_context)
+        system_prompt = template_manager.get_scenario_template('list_actions', available_scenarios=scenarios_context)
         
         actions_text = llm_provider.generate(system_prompt, self.text)
         actions = [action.strip() for action in actions_text.split('\n') if action.strip()]
@@ -131,6 +130,13 @@ class Scenario:
                     expected = step_data.get('expected', '')
                     
                     step_list.add_check(description, check_type, target, expected, is_explicit=True)
+                    
+                elif step_type == 'precondition':
+                    precondition_type = step_data.get('precondition_type', 'setup')
+                    role = step_data.get('role', '')
+                    target = step_data.get('target', '')
+                    
+                    step_list.add_precondition(description, precondition_type, role, target)
             
             # Add baseline technical checks
             step_list.add_baseline_checks()
@@ -159,7 +165,7 @@ class Scenario:
     
     def summarize(self, llm_provider, template_manager) -> str:
         """Generate a concise summary of the scenario for reference purposes."""
-        system_prompt = template_manager.get_scenario_template(Constants.SUMMARIZE_TEMPLATE)
+        system_prompt = template_manager.get_scenario_template('summarize')
         summary = llm_provider.generate(system_prompt, self.text)
         return summary.strip()
     
@@ -167,93 +173,3 @@ class Scenario:
         return f'Scenario(name={self.name}, text_length={len(self.text)})'
 
 
-class Guide:
-    """Represents a pre-processed guide file with action list."""
-    
-    def __init__(self, name: str, original_scenario: str, actions: List[str]):
-        self.name = name
-        self.original_scenario = original_scenario
-        self.actions = actions
-    
-    @classmethod
-    def from_file(cls, filepath: str, filesystem) -> 'Guide':
-        """Create a Guide from a .guide file."""
-        if not filesystem.exists(filepath):
-            raise FileNotFoundError(f"Guide file not found: {filepath}")
-        
-        import json
-        text_content = filesystem.read_text(filepath)
-        data = json.loads(text_content)
-        
-        return cls(
-            name=data['name'],
-            original_scenario=data['original_scenario'],
-            actions=data['actions']
-        )
-    
-    def to_dict(self) -> dict:
-        """Convert guide to dictionary for JSON serialization."""
-        return {
-            'name': self.name,
-            'original_scenario': self.original_scenario,
-            'actions': self.actions,
-            'created_at': None,
-            'version': Constants.GUIDE_VERSION
-        }
-    
-    def save(self, filepath: str, filesystem):
-        """Save guide to JSON file."""
-        import json
-        json_content = json.dumps(self.to_dict(), indent=2)
-        filesystem.write_text(filepath, json_content)
-    
-    def to_prompt(self) -> str:
-        """Convert guide to a prompt-friendly format."""
-        actions_text = '\n'.join(f"{i+1}. {action}" for i, action in enumerate(self.actions))
-        return f"Guide: {self.name}\n\nActions:\n{actions_text}"
-    
-    def resolve_scenario_references(self, all_guides=None, filesystem=None) -> List[str]:
-        """Resolve scenario references by expanding them into their constituent actions."""
-        if all_guides is None:
-            all_guides = {}
-        if filesystem is None:
-            from .filesystem import FileSystem
-            filesystem = FileSystem()
-        
-        flattened_actions = []
-        
-        for action in self.actions:
-            clean_action = action.lstrip('- ').strip()
-            
-            if clean_action.startswith('[ref:') and ']' in clean_action:
-                ref_start = clean_action.find('[ref:') + 5
-                ref_end = clean_action.find(']')
-                scenario_name = clean_action[ref_start:ref_end].strip()
-                
-                referenced_guide = all_guides.get(scenario_name)
-                if referenced_guide is None:
-                    flattened_actions.append(clean_action)
-                    continue
-                
-                referenced_actions = referenced_guide.resolve_scenario_references(all_guides, filesystem)
-                flattened_actions.extend(referenced_actions)
-            else:
-                flattened_actions.append(clean_action)
-        
-        return flattened_actions
-    
-    def get_flattened_actions(self, all_guides=None, filesystem=None) -> List[str]:
-        """
-        DEPRECATED: Use resolve_scenario_references() instead.
-        
-        This method name is misleading as it doesn't actually flatten actions
-        in the current architecture. The build system now uses imports and
-        helper functions instead of flattening.
-        """
-        import warnings
-        warnings.warn(
-            "get_flattened_actions() is deprecated. Use resolve_scenario_references() instead.",
-            DeprecationWarning,
-            stacklevel=2
-        )
-        return self.resolve_scenario_references(all_guides, filesystem)

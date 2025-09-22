@@ -5,7 +5,6 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 from .exceptions import ConfigurationError
-from .constants import Constants
 
 logger = logging.getLogger(__name__)
 
@@ -30,21 +29,24 @@ class Config:
     
     def _load_config(self):
         if not self.filesystem.exists(self.filepath):
-            logger.error(Constants.CONFIG_NOT_FOUND.format(self.filepath))
-            raise ConfigurationError(Constants.CONFIG_NOT_FOUND.format(self.filepath))
+            error_msg = f"Config file not found: {self.filepath}"
+            logger.error(error_msg)
+            raise ConfigurationError(error_msg)
         
         try:
             config_content = self.filesystem.read_text(self.filepath)
             config_data = yaml.safe_load(config_content)
         except yaml.YAMLError as e:
-            logger.error(Constants.INVALID_YAML.format(self.filepath, e))
-            raise ConfigurationError(Constants.INVALID_YAML.format(self.filepath, e))
+            error_msg = f"Invalid YAML in config file {self.filepath}: {e}"
+            logger.error(error_msg)
+            raise ConfigurationError(error_msg)
         
         if not isinstance(config_data, dict):
-            logger.error(Constants.NOT_DICT_YAML.format(self.filepath))
-            raise ConfigurationError(Constants.NOT_DICT_YAML.format(self.filepath))
+            error_msg = f"Config file must contain a YAML dictionary: {self.filepath}"
+            logger.error(error_msg)
+            raise ConfigurationError(error_msg)
         
-        logger.info(Constants.CONFIG_LOADED.format(self.filepath))
+        logger.info(f"Successfully loaded config from {self.filepath}")
         
         for key, value in config_data.items():
             if key == 'llm' and isinstance(value, dict):

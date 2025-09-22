@@ -197,24 +197,25 @@ class PlaywrightTarget(Target):
         glyph_dir = Path('.glyph')
         if glyph_dir.exists():
             import shutil
-            # Preserve guides directory if it exists
+            # Preserve guides directory if it exists (but not SDK)
             guides_dir = glyph_dir / 'guides'
-            guides_backup = None
+            backup_dir = None
             if guides_dir.exists():
                 import tempfile
-                guides_backup = tempfile.mkdtemp()
-                shutil.copytree(guides_dir, Path(guides_backup) / 'guides')
+                backup_dir = tempfile.mkdtemp()
+                shutil.copytree(guides_dir, Path(backup_dir) / 'guides')
                 logger.info('Backed up existing guides directory')
             
             shutil.rmtree(glyph_dir)
             logger.info('Removed existing .glyph directory')
             
-            # Restore guides directory
-            if guides_backup:
+            # Restore guides directory only (SDK will be generated fresh)
+            if backup_dir:
                 glyph_dir.mkdir()
-                shutil.copytree(Path(guides_backup) / 'guides', glyph_dir / 'guides')
-                shutil.rmtree(guides_backup)
-                logger.info('Restored guides directory')
+                if (Path(backup_dir) / 'guides').exists():
+                    shutil.copytree(Path(backup_dir) / 'guides', glyph_dir / 'guides')
+                    logger.info('Restored guides directory')
+                shutil.rmtree(backup_dir)
         
         # Create .glyph directory structure
         glyph_dir.mkdir(exist_ok=True)

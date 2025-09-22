@@ -1,0 +1,13 @@
+import { test, expect } from '@playwright/test';
+
+{% for function in functions %}
+// {{ function.name }} ({{ function.function_type }}) - {{ function.summary or function.generate_summary() }}
+{{ function.to_composable_js() }}
+
+{% endfor %}
+// EXPORTS
+export {
+{% for function in functions %}
+    {{ function.name }}{% if not loop.last %},{% endif %}
+{% endfor %}
+};

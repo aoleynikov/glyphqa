@@ -1,0 +1,17 @@
+import { test, expect } from '@playwright/test';
+
+// {{ module_description }}
+// Generated automatically - do not edit manually
+
+{% for function in functions %}
+// {{ function.name }} - {{ function.summary or 'No description available' }}
+{{ function.to_composable_js() }}
+
+{% endfor %}
+
+// Module exports
+export {
+{% for function in functions %}
+    {{ function.name }}{% if not loop.last %},{% endif %}
+{% endfor %}
+};

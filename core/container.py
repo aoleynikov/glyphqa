@@ -19,9 +19,6 @@ from .target import Target
 from .scenario_builder import ScenarioBuilder
 
 from .hash_caching import HashCachingSystem
-from .scenario_graph import ScenarioGraphBuilder
-from .system_state import SystemState
-from .system_state_storage_manager import SystemStateStorageManager
 
 logger = logging.getLogger(__name__)
 
@@ -93,9 +90,6 @@ class GlyphQAContainer(Container):
         self.register('scenario_builder', self._create_scenario_builder)
 
         self.register('hash_caching', self._create_hash_caching)
-        self.register('scenario_graph_builder', self._create_scenario_graph_builder)
-        self.register('system_state', self._create_system_state)
-        self.register('system_state_storage_manager', self._create_system_state_storage_manager)
     
     def _create_config(self, container: Container) -> Config:
         """Create configuration instance."""
@@ -125,18 +119,16 @@ class GlyphQAContainer(Container):
             return PlaywrightTarget(config)
         else:
             from .exceptions import ConfigurationError
-            from .constants import Constants
-            raise ConfigurationError(Constants.UNKNOWN_TARGET.format(target_name))
+            raise ConfigurationError(f"Unknown target: {target_name}")
     
     def _create_scenario_builder(self, container: Container) -> ScenarioBuilder:
         """Create scenario builder instance."""
         target = container.get('target')
         config = container.get('config')
         filesystem = container.get('filesystem')
-        system_state = container.get('system_state')
         llm_provider = container.get('llm_provider')
         template_manager = container.get('template_manager')
-        return ScenarioBuilder(target, config, filesystem, system_state, llm_provider, template_manager)
+        return ScenarioBuilder(target, config, filesystem, None, llm_provider, template_manager)
     
 
     
@@ -146,24 +138,7 @@ class GlyphQAContainer(Container):
         filesystem = container.get('filesystem')
         return HashCachingSystem(glyph_dir, filesystem)
     
-    def _create_scenario_graph_builder(self, container: Container) -> ScenarioGraphBuilder:
-        """Create scenario graph builder instance."""
-        guides_dir = Path('.glyph/guides')
-        return ScenarioGraphBuilder(guides_dir)
     
-    def _create_system_state(self, container: Container) -> SystemState:
-        """Create system state instance."""
-        glyph_dir = Path('.glyph')
-        llm_provider = container.get('llm_provider')
-        template_manager = container.get('template_manager')
-        storage_manager = container.get('system_state_storage_manager')
-        return SystemState(glyph_dir, llm_provider, template_manager, storage_manager)
-    
-    def _create_system_state_storage_manager(self, container: Container) -> SystemStateStorageManager:
-        """Create system state storage manager instance."""
-        glyph_dir = Path('.glyph')
-        template_manager = container.get('template_manager')
-        return SystemStateStorageManager(glyph_dir, template_manager)
 
 
 def create_container(config_path: str = 'glyph.config.yml') -> GlyphQAContainer:

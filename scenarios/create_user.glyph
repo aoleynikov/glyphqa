@@ -1,7 +1,8 @@
 Login as admin user
 Navigate to Users tab and to user creation UI
 Fill in name field with "Test User"
-Fill in email field with "test@example.com"
+Fill in email field (email should be unique)
+
 Select "user" role from dropdown
 Click "Save User" button
 Verify new user appears in the table

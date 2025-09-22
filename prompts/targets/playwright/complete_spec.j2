@@ -1,0 +1,11 @@
+import { test, expect } from '@playwright/test';
+
+test.describe('{{ scenario_name }}', () => {
+    test('should complete the workflow', async ({ page }) => {
+        {% for step in steps %}
+        {% for js_line in step.js_lines %}
+        {{ js_line }}
+        {% endfor %}
+        {% endfor %}
+    });
+});

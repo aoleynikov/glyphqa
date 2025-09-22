@@ -1,6 +1,0 @@
-{% extends "system_state/insight_base.j2" %}
-{% set insight_title = text %}
-{% block insight_content %}
-**Selectors:** {% for key, value in selectors.items() %}`{{ key }}={{ value }}`{% if not loop.last %}, {% endif %}{% endfor %}
-**Context:** {{ action }}
-{% endblock %}

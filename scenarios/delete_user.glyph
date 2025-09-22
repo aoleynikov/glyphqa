@@ -1,0 +1,6 @@
+Test user deletion workflow
+
+Login as administrator
+Navigate to user management
+Delete a test user
+Verify the user is removed from the list

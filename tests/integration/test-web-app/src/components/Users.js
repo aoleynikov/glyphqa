@@ -5,10 +5,13 @@ const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
 
 const Users = () => {
     const [showModal, setShowModal] = useState(false);
+    const [showDeleteModal, setShowDeleteModal] = useState(false);
+    const [userToDelete, setUserToDelete] = useState(null);
     const [users, setUsers] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [submitting, setSubmitting] = useState(false);
+    const [deleting, setDeleting] = useState(false);
 
     const [newUser, setNewUser] = useState({
         username: '',
@@ -79,13 +82,67 @@ const Users = () => {
                 fetchUsers(); // Refresh the list
             } else {
                 const errorData = await response.json();
-                setError(errorData.detail || 'Failed to create user');
+                let errorMessage = 'Failed to create user';
+
+                if (errorData.detail) {
+                    if (errorData.detail.includes('Username already exists')) {
+                        errorMessage = 'Username already exists. Please choose a different username.';
+                    } else if (errorData.detail.includes('Email already exists')) {
+                        errorMessage = 'Email already exists. Please use a different email address.';
+                    } else {
+                        errorMessage = errorData.detail;
+                    }
+                }
+
+                setError(errorMessage);
             }
         } catch (err) {
             setError('Network error while creating user');
         } finally {
             setSubmitting(false);
         }
+    };
+
+    const handleDeleteClick = (user) => {
+        setUserToDelete(user);
+        setShowDeleteModal(true);
+        setError('');
+    };
+
+    const handleDeleteConfirm = async () => {
+        if (!userToDelete) return;
+
+        setDeleting(true);
+        setError('');
+
+        try {
+            const token = getAuthToken();
+            const response = await fetch(`${API_BASE_URL}/users/${userToDelete.id}`, {
+                method: 'DELETE',
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
+            });
+
+            if (response.ok) {
+                setShowDeleteModal(false);
+                setUserToDelete(null);
+                fetchUsers(); // Refresh the list
+            } else {
+                const errorData = await response.json();
+                setError(errorData.detail || 'Failed to delete user');
+            }
+        } catch (err) {
+            setError('Network error while deleting user');
+        } finally {
+            setDeleting(false);
+        }
+    };
+
+    const handleDeleteCancel = () => {
+        setShowDeleteModal(false);
+        setUserToDelete(null);
+        setError('');
     };
 
     const getRoleVariant = (role) => {
@@ -152,6 +209,7 @@ const Users = () => {
                                         <Button
                                             variant="outline-danger"
                                             size="sm"
+                                            onClick={() => handleDeleteClick(user)}
                                         >
                                             Delete
                                         </Button>
@@ -232,6 +290,39 @@ const Users = () => {
                         </Button>
                     </Form>
                 </Modal.Body>
+            </Modal>
+
+            {/* Delete Confirmation Modal */}
+            <Modal show={showDeleteModal} onHide={handleDeleteCancel}>
+                <Modal.Header closeButton>
+                    <Modal.Title>Confirm Delete</Modal.Title>
+                </Modal.Header>
+                <Modal.Body>
+                    {error && (
+                        <Alert variant="danger" className="mb-3">
+                            {error}
+                        </Alert>
+                    )}
+
+                    <p>
+                        Are you sure you want to delete user <strong>{userToDelete?.username}</strong>?
+                    </p>
+                    <p className="text-muted">
+                        This action cannot be undone.
+                    </p>
+                </Modal.Body>
+                <Modal.Footer>
+                    <Button variant="secondary" onClick={handleDeleteCancel}>
+                        Cancel
+                    </Button>
+                    <Button
+                        variant="danger"
+                        onClick={handleDeleteConfirm}
+                        disabled={deleting}
+                    >
+                        {deleting ? 'Deleting...' : 'Delete User'}
+                    </Button>
+                </Modal.Footer>
             </Modal>
         </div>
     );
