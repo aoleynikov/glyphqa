@@ -1,0 +1,35 @@
+Determine if scenario A is required as a dependency for scenario B.
+
+Scenario A (potential dependency):
+Name: {{ scenario_a.name }}
+Text: {{ scenario_a.text }}
+
+Scenario B (being analyzed):
+Name: {{ scenario_b.name }}
+Text: {{ scenario_b.text }}
+
+Question: Is scenario A required as a dependency for scenario B to run?
+
+Before answering, analyze both scenarios:
+1. If scenario B mentions an action, check if it provides detailed steps for that action (navigation, clicking, verification, etc.)
+2. If scenario B only mentions an action without detailed steps, check if scenario A provides those detailed steps
+3. If scenario A provides detailed steps for an action that scenario B only mentions, then scenario A is required
+
+A scenario A is required for scenario B if:
+- Scenario B explicitly states a required starting state or condition that scenario A creates (like "you should be...", "you must be...", "assume...")
+- Scenario B explicitly mentions that an action must have been completed, and scenario A performs that exact action
+- Scenario B mentions performing an action, and scenario A describes how to perform that action within the system
+- Scenario B mentions an action but doesn't provide detailed steps for how to perform it (like navigation, clicking, verification), and scenario A provides those detailed steps - merely mentioning an action is NOT the same as describing how to perform it
+- Scenario B cannot start without the state/condition that scenario A establishes
+
+A scenario A is NOT required for scenario B if:
+- Scenario B describes performing an action itself in detail with specific steps for that action (e.g., if scenario B says "Navigate to X, click Y, verify Z" for an action, it describes how to do that action itself) - the fact that scenario B mentions an action as part of its flow does NOT automatically mean it describes how to do it, it must actually provide the detailed steps
+- Scenario A and scenario B are inverse operations - one does not depend on the other
+- Scenario A and scenario B are independent flows that don't reference each other
+
+Return only a JSON object with two fields:
+- "justification": a brief explanation of your decision, referencing specific parts of scenario B's text if scenario A is required, or explaining why it's not required
+- "required": true or false
+
+Do not wrap the response in markdown code blocks or any other formatting. Return only the raw JSON object.
+

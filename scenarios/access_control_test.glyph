@@ -1,5 +1,3 @@
-Test access control functionality
-
 First, login as admin user
 Then create a new user using the user management feature
 Then login as this new user to verify they can access the system

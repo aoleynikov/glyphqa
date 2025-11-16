@@ -1,6 +1,5 @@
-target: playwright
+scenarios_dir: scenarios
 connection:
   url: http://localhost:3000
 llm:
-  provider: openai
   model: gpt-4o-mini
