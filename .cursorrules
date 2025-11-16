@@ -1,0 +1,39 @@
+# GlyphQA Project Rules and Context
+
+## Project Overview
+GlyphQA is an AI-powered test generation system that creates Playwright test scenarios from natural language descriptions. The system uses LLM agents to build, analyze, and maintain test suites with a modular SDK architecture. 
+
+Important: Neither scenario specicifics, nor test application implementation details should ever leak into the code or the prompts. After every change you need to make sure this rule is not voilated.
+
+## Development guidelines
+
+1. Avoid the use of comments.
+2. Fail fast. Only catch exceptions when it's a part of the implemented logic.
+3. For any LLM template a jinja template has to be used.
+4. Avoid using regex to solve problems related to built tests except the most minor ones.
+5. All imports in a python file have to be grouped at the top.
+
+## Key Principles
+1. **Iterative Build Process**: Build and system analysis agents work together in cycles
+2. **Syntax Validation**: Always fix syntax errors before addressing logic issues
+3. **Modular SDK**: Functions are classified into logical domains for better organization
+4. **Page State Capture**: Always capture fresh page state after each step for accurate context
+5. **Reflection Steps**: Capture page state after each arrange/act/assert step
+
+## File Structure
+- `core/`: Main system components (agents, managers, validators)
+- `prompts/`: Jinja2 templates for LLM interactions
+- `.glyph/`: Generated test files and SDK
+- `scenarios/`: Input scenario files (.glyph format)
+
+## Development Workflow
+1. **Purge**: Clear cached knowledge (`./glyph purge`)
+2. **Build**: Generate tests (`./glyph build scenarios`)
+3. **Test**: Run Playwright tests (`./glyph test`)
+
+## Current Status
+- Enhanced syntax validation system working
+- Modular SDK system implemented and functional
+- Iterative build process with reflection steps working
+- Syntax error fixer handles common JavaScript issues
+- Focus on fixing selector accuracy and page state capture
