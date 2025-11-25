@@ -1,0 +1,14 @@
+const { defineConfig } = require('@playwright/test');
+
+module.exports = defineConfig({
+  testDir: '.',
+  testMatch: ['**/*.spec.js'],
+  use: {
+    baseURL: '{{ base_url }}',
+  },
+  fullyParallel: false,
+  retries: 0,
+  workers: 1,
+  reporter: 'json',
+});
+

@@ -1,6 +1,12 @@
 import sys
 import argparse
 from pathlib import Path
+from core.config import Config
+from core.llm import LangChainLLM
+from core.template_manager import TemplateManager
+from core.pipeline import PipelineContext
+from core.stages import LoadStage
+from core.build_agent import BuildAgent
 
 
 class CLI:
@@ -11,7 +17,8 @@ class CLI:
         self._setup_build_command()
     
     def _setup_build_command(self):
-        self.subparsers.add_parser('build', help='Build test scenarios')
+        build_parser = self.subparsers.add_parser('build', help='Build test scenarios')
+        build_parser.add_argument('-v', '--verbose', action='store_true', help='Show detailed build progress')
     
     def run(self, args=None):
         parsed_args = self.parser.parse_args(args)
@@ -27,31 +34,29 @@ class CLI:
             sys.exit(1)
     
     def _handle_build(self, args):
-        from core.config import Config
-        from core.llm import OpenAILLM
-        from core.template_manager import TemplateManager
-        from core.scenario import Scenario
-        
         config = Config()
-        llm = OpenAILLM(model=config.llm_model)
+        llm = LangChainLLM(model=config.llm_model)
         template_manager = TemplateManager()
         
-        scenarios_dir = Path(config.scenarios_dir)
-        if not scenarios_dir.exists():
-            raise FileNotFoundError(f'Scenarios directory not found: {scenarios_dir}')
+        context = PipelineContext(config=config, llm=llm, template_manager=template_manager)
         
-        scenario_files = list(scenarios_dir.glob('*.glyph'))
-        if not scenario_files:
-            print(f'No .glyph files found in {scenarios_dir}')
-            return
+        load_stage = LoadStage('load_scenarios')
+        scenarios = load_stage.execute(context)
         
-        print(f'Found {len(scenario_files)} scenario file(s)')
+        agent = BuildAgent(config, llm, template_manager, verbose=args.verbose)
+        progress = agent.build_all_scenarios(scenarios)
         
-        for scenario_file in scenario_files:
-            print(f'Processing {scenario_file.name}...')
-            scenario_text = scenario_file.read_text()
-            scenario = Scenario(scenario_text)
-            
-            summary = scenario.summarize(llm, template_manager)
-            print(f'  Summary: {summary}')
-
+        report = progress.get_final_report()
+        
+        print('\nBuild Report:')
+        print('=' * 60)
+        for scenario_path, status in sorted(report.items()):
+            status_symbol = '✓' if status == 'completed' else '✗' if status == 'failed' else '○'
+            print(f'{status_symbol} {scenario_path}: {status}')
+        print('=' * 60)
+        
+        completed = len(progress.get_completed())
+        failed = len(progress.get_failed())
+        total = len(progress.scenarios)
+        
+        print(f'\nSummary: {completed}/{total} completed, {failed} failed')

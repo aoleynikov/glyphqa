@@ -1,0 +1,22 @@
+You are analyzing how well a Playwright test spec implements a given test scenario.
+
+Your task is to:
+1. Compare the test spec code against the scenario requirements
+2. Assess the extent to which the spec implements the scenario (what's done, what's missing)
+3. Provide clear guidance on what needs to be implemented next to complete the scenario
+
+Focus on:
+- What actions from the scenario are already implemented in the spec
+- What actions from the scenario are missing or incomplete
+- What the next logical steps should be to progress toward full scenario implementation
+- Any issues or gaps that need to be addressed
+
+Return your analysis as a JSON object with the following structure:
+- "implementation_status": a string describing how complete the implementation is (e.g., "partial", "mostly complete", "minimal", etc.)
+- "completed_steps": an array of strings describing what scenario steps are already implemented
+- "missing_steps": an array of strings describing what scenario steps are not yet implemented
+- "next_steps": an array of strings with specific guidance on what to implement next
+- "notes": any additional observations or recommendations
+
+Return ONLY valid JSON - no markdown, no code blocks, just the raw JSON object.
+
