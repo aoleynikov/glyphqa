@@ -9,8 +9,8 @@ from core.scenario import Scenario
 from core.tools import (
     compose_spec_with_base,
     run_steps_with_page_state,
-    analyze_spec_implementation,
 )
+from core.tools.generation import build_next_step
 from core.playwright_env import ensure_playwright_environment
 
 
@@ -34,13 +34,13 @@ class BuildAgent:
             'warning': '⚠',
         }.get(level, '→')
         
-        print(f'{indent}{prefix} {message}')
+        print(f'{indent}{prefix} {message}', flush=True)
         
         if data and self.verbose:
             for key, value in data.items():
                 if isinstance(value, str) and len(value) > 200:
                     value = value[:200] + '...'
-                print(f'{indent}    {key}: {value}')
+                print(f'{indent}    {key}: {value}', flush=True)
     
     def _push_indent(self):
         self._indent_level += 1
@@ -55,25 +55,14 @@ class BuildAgent:
         
         scenario_dict = {scenario.name: scenario for scenario in scenarios}
         
-        self._log('Analyzing scenario dependencies...')
-        scenario_summaries = {
-            s.name: s.summarize(self.llm, self.template_manager)
-            for s in scenarios
-        }
-        
         for scenario in scenarios:
             if scenario.name not in progress.scenarios:
-                dependencies = self._find_dependencies(scenario, scenario_summaries)
-                
                 progress.scenarios[scenario.name] = ScenarioProgress(
                     scenario_name=scenario.name,
                     scenario_path=str(Path(self.config.scenarios_dir) / scenario.name),
                     status='not_yet_implemented',
-                    dependencies=dependencies
+                    dependencies=[]
                 )
-                
-                if dependencies:
-                    self._log(f'{scenario.name} depends on: {", ".join(dependencies)}', 'debug')
         
         progress.save(self.progress_path)
         
@@ -107,30 +96,27 @@ class BuildAgent:
         progress.mark_in_progress(scenario.name)
         progress.save(self.progress_path)
         
-        scenario_progress = progress.scenarios[scenario.name]
-        if scenario_progress.dependencies:
-            self._log(f'Resolving {len(scenario_progress.dependencies)} dependency(ies)...')
-            self._push_indent()
-        
-        if not self.resolve_dependencies(scenario, progress, scenario_dict):
-            if scenario_progress.dependencies:
-                self._pop_indent()
-            progress.mark_failed(scenario.name, 'Dependencies could not be resolved')
-            return False
-        
-        if scenario_progress.dependencies:
-            self._pop_indent()
-        
         self._log('Starting iterative build...')
         self._push_indent()
-        success = self.iterative_build(scenario, progress)
+        success = self.iterative_build(scenario, progress, scenario_dict)
         self._pop_indent()
         
         if success:
             scenario_progress = progress.scenarios[scenario.name]
-            spec_path = Path(scenario_progress.scenario_path).with_suffix('.spec.js')
-            spec_path.parent.mkdir(parents=True, exist_ok=True)
-            spec_path.write_text(scenario_progress.current_spec_code)
+            glyph_dir = ensure_playwright_environment(self.config.connection_url)
+            spec_filename = Path(scenario.name).stem + '.spec.js'
+            spec_path = glyph_dir / spec_filename
+            
+            if not spec_path.exists():
+                if scenario_progress.current_spec_code:
+                    spec_path.write_text(scenario_progress.current_spec_code)
+                    if not spec_path.exists():
+                        progress.mark_failed(scenario.name, f'Failed to create spec file at {spec_path}')
+                        return False
+                else:
+                    progress.mark_failed(scenario.name, f'Spec file does not exist and current_spec_code is empty')
+                    return False
+            
             progress.mark_completed(scenario.name, str(spec_path))
             self._log(f'Saved spec to: {spec_path}', 'success')
         else:
@@ -138,97 +124,43 @@ class BuildAgent:
         
         return success
 
-    def resolve_dependencies(self, scenario: Scenario, progress: BuildProgress, scenario_dict: dict[str, Scenario]) -> bool:
+    def iterative_build(self, scenario: Scenario, progress: BuildProgress, scenario_dict: dict[str, Scenario]) -> bool:
         scenario_progress = progress.scenarios[scenario.name]
         
-        for dep_name in scenario_progress.dependencies:
-            dep_progress = progress.scenarios.get(dep_name)
-            
-            if not dep_progress:
-                continue
-            
-            if dep_progress.status == 'completed':
-                self._log(f'Dependency already built: {dep_name}', 'debug')
-                continue
-            
-            if dep_progress.status == 'failed':
-                self._log(f'Dependency failed: {dep_name}', 'error')
-                return False
-            
-            if dep_progress.status == 'in_progress':
-                self._log(f'Dependency in progress: {dep_name}', 'warning')
-                continue
-            
-            self._log(f'Building dependency: {dep_name}')
-            progress.set_current_reference(scenario.name, dep_name)
+        if not scenario_progress.step_list:
+            self._log('Converting scenario to steps...')
+            step_list = scenario.to_steps(self.llm, self.template_manager)
+            scenario_progress.step_list = step_list
             progress.save(self.progress_path)
-            
-            dep_scenario = scenario_dict.get(dep_name)
-            if not dep_scenario:
-                self._log(f'Dependency scenario not found: {dep_name}', 'error')
-                return False
-            
-            self._push_indent()
-            if not self.build_scenario(dep_scenario, progress, scenario_dict):
-                self._pop_indent()
-                return False
-            self._pop_indent()
-            
-            progress.clear_current_reference(scenario.name)
-            progress.save(self.progress_path)
-            self._log(f'Dependency completed: {dep_name}', 'success')
+            self._log(f'Found {len(step_list)} steps')
+        else:
+            step_list = scenario_progress.step_list
         
-        return True
-
-    def iterative_build(self, scenario: Scenario, progress: BuildProgress) -> bool:
-        scenario_progress = progress.scenarios[scenario.name]
-        current_spec = None
-        max_iterations = 20
-        iteration = 0
+        if not step_list:
+            self._log('No steps found in scenario', 'error')
+            return False
         
-        while iteration < max_iterations:
-            iteration += 1
-            self._log(f'Iteration {iteration}/{max_iterations}')
-            self._push_indent()
-            
-            if current_spec is None:
-                self._log('Initializing with step0 template')
-                current_spec = self.template_manager.step0_playwright_template(
-                    base_url=self.config.connection_url
-                )
-            
-            self._log('Analyzing implementation progress...')
-            analysis_json = analyze_spec_implementation(
-                current_spec,
-                scenario.text,
-                self.llm
+        current_spec = scenario_progress.current_spec_code
+        if current_spec is None:
+            self._log('Initializing with step0 template')
+            current_spec = self.template_manager.step0_playwright_template(
+                base_url=self.config.connection_url
             )
-            
-            try:
-                analysis = json.loads(analysis_json)
-            except json.JSONDecodeError:
-                analysis = {'implementation_status': 'unknown'}
-            
-            status = analysis.get('implementation_status', 'unknown')
-            self._log(f'Status: {status}')
-            
-            if self.verbose:
-                completed = analysis.get('completed_steps', [])
-                missing = analysis.get('missing_steps', [])
-                if completed:
-                    self._log(f'Completed steps: {len(completed)}', 'debug')
-                if missing:
-                    self._log(f'Missing steps: {len(missing)}', 'debug')
-            
-            if status in ['complete', 'mostly complete']:
-                self._log('Implementation complete!', 'success')
-                scenario_progress = progress.scenarios[scenario.name]
-                spec_path = Path(scenario_progress.scenario_path).with_suffix('.spec.js')
-                spec_path.parent.mkdir(parents=True, exist_ok=True)
-                spec_path.write_text(current_spec)
-                progress.update_spec_code(scenario.name, current_spec)
-                self._pop_indent()
-                return True
+            progress.update_spec_code(scenario.name, current_spec)
+        
+        completed_steps = scenario_progress.completed_steps or []
+        total_steps = len(step_list)
+        
+        all_scenarios_list = [
+            {'path': s.name, 'text': s.text}
+            for s in scenario_dict.values()
+        ]
+        all_scenarios_text = self.template_manager.list_scenarios(all_scenarios_list)
+        
+        while len(completed_steps) < total_steps:
+            current_step_index = len(completed_steps)
+            self._log(f'Building step {current_step_index + 1}/{total_steps}')
+            self._push_indent()
             
             self._log('Running test to capture page state...')
             result_json = run_steps_with_page_state(
@@ -258,67 +190,60 @@ class BuildAgent:
                 return False
             
             current_spec = result.get('spec_code', current_spec)
-            progress.update_spec_code(scenario.name, current_spec)
-            
-            next_steps = analysis.get('next_steps', [])
-            if not next_steps:
-                self._log('No next steps guidance available', 'warning')
-                self._pop_indent()
-                break
-            
-            next_step_guidance = next_steps[0]
-            self._log(f'Next step: {next_step_guidance[:100]}...')
-            
-            self._log('Generating code...')
             page_state_output = result.get('output', '')
             
-            system_prompt = self.template_manager.generate_next_code_system_prompt()
-            user_prompt = self.template_manager.generate_next_code_user_prompt(
-                page_state_output,
-                next_step_guidance
+            self._log('Building next step...')
+            build_result_json = build_next_step(
+                all_scenarios=all_scenarios_text,
+                current_scenario_name=scenario.name,
+                current_scenario_path=scenario_progress.scenario_path,
+                current_scenario_text=scenario.text,
+                step_list=step_list,
+                completed_steps_indices=completed_steps,
+                current_spec=current_spec,
+                page_state_output=page_state_output,
+                llm=self.llm
             )
             
-            next_code_response = self.llm.process(user_prompt, system_prompt=system_prompt)
-            next_code_response = next_code_response.strip()
+            try:
+                build_result = json.loads(build_result_json)
+            except json.JSONDecodeError:
+                self._log('Failed to parse build result', 'error')
+                self._pop_indent()
+                return False
             
-            code_block_pattern = r'```(?:javascript|js)?\n?(.*?)```'
-            match = re.search(code_block_pattern, next_code_response, re.DOTALL)
-            if match:
-                next_code = match.group(1).strip()
-            else:
-                next_code = next_code_response
+            if not build_result.get('success'):
+                self._log('Build step failed', 'error')
+                self._pop_indent()
+                return False
             
-            if next_code:
-                if self.verbose:
-                    code_preview = next_code[:150] + '...' if len(next_code) > 150 else next_code
-                    self._log(f'Generated code: {code_preview}', 'debug')
-                
-                current_spec = compose_spec_with_base(
-                    current_spec,
-                    next_code,
-                    self.llm
-                )
+            updated_spec = build_result.get('spec_code', current_spec)
+            if updated_spec:
+                current_spec = updated_spec
                 progress.update_spec_code(scenario.name, current_spec)
-                self._log('Code composed into spec')
+                completed_steps.append(current_step_index)
+                scenario_progress.completed_steps = completed_steps
+                progress.save(self.progress_path)
+                self._log('Step completed', 'success')
             else:
-                self._log('No code generated', 'warning')
+                self._log('No spec code generated', 'warning')
+                self._pop_indent()
+                return False
             
             self._pop_indent()
         
-        self._log(f'Reached max iterations ({max_iterations})', 'warning')
-        return False
-
-    def _find_dependencies(self, scenario: Scenario, scenario_summaries: dict[str, str]) -> list[str]:
-        if self.verbose:
-            self._log(f'Finding dependencies for: {scenario.name}', 'debug')
+        self._log('All steps completed', 'success')
         
-        prompt = self.template_manager.find_scenario_references(scenario, scenario_summaries)
-        response = self.llm.process(prompt)
+        scenario_progress = progress.scenarios[scenario.name]
+        glyph_dir = ensure_playwright_environment(self.config.connection_url)
+        spec_filename = Path(scenario.name).stem + '.spec.js'
+        spec_path = glyph_dir / spec_filename
+        spec_path.write_text(current_spec)
+        progress.update_spec_code(scenario.name, current_spec)
         
-        try:
-            dependencies = json.loads(response)
-            deps = [dep['scenario'] for dep in dependencies if isinstance(dep, dict) and 'scenario' in dep]
-            return deps
-        except json.JSONDecodeError:
-            return []
+        if not spec_path.exists():
+            self._log(f'Warning: Spec file was not created at {spec_path}', 'warning')
+            return False
+        
+        return True
 

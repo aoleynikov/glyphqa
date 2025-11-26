@@ -1,40 +1,38 @@
-import json
+import sys
 from core.config import Config
-from core.llm import OpenAILLM
+from core.llm import LangChainLLM
 from core.template_manager import TemplateManager
 from core.pipeline import PipelineContext
-from core.stages import LoadStage, SortStage, ValidateStage
-
+from core.stages import LoadStage
+from core.build_agent import BuildAgent
 
 config = Config()
-llm = OpenAILLM(model=config.llm_model)
+llm = LangChainLLM(model=config.llm_model)
 template_manager = TemplateManager()
 
 context = PipelineContext(config=config, llm=llm, template_manager=template_manager)
 
 load_stage = LoadStage('load_scenarios')
-sort_stage = SortStage('sort_scenarios')
-validate_stage = ValidateStage('validate_scenarios')
-load_stage.set_next(sort_stage)
-sort_stage.set_next(validate_stage)
-
 load_stage.execute(context)
 
-print('\nDependencies:')
-for scenario_name, dependencies in context.scenario_links.items():
-    if dependencies:
-        print(f'\n{scenario_name} depends on:')
-        for dep in dependencies:
-            if isinstance(dep, dict) and 'scenario' in dep:
-                print(f'  - {dep["scenario"]}: {dep.get("justification", "No justification")}')
-            else:
-                print(f'  - {dep}')
-    else:
-        print(f'{scenario_name} has no dependencies')
+scenarios = context.scenarios
 
-print('\nTopological Sort Order:')
-if hasattr(context, 'sorted_scenarios'):
-    for i, scenario_name in enumerate(context.sorted_scenarios, 1):
-        print(f'  {i}. {scenario_name}')
-else:
-    print('  No sorted order available')
+verbose = '-v' in sys.argv or '--verbose' in sys.argv
+if __name__ == '__main__':
+    agent = BuildAgent(config, llm, template_manager, verbose=verbose)
+    progress = agent.build_all_scenarios(scenarios)
+
+    report = progress.get_final_report()
+
+    print('\nBuild Report:')
+    print('=' * 60)
+    for scenario_path, status in sorted(report.items()):
+        status_symbol = '✓' if status == 'completed' else '✗' if status == 'failed' else '○'
+        print(f'{status_symbol} {scenario_path}: {status}')
+    print('=' * 60)
+
+    completed = len(progress.get_completed())
+    failed = len(progress.get_failed())
+    total = len(progress.scenarios)
+
+    print(f'\nSummary: {completed}/{total} completed, {failed} failed')

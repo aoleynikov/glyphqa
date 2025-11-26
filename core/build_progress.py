@@ -15,10 +15,16 @@ class ScenarioProgress:
     current_reference_building: Optional[str] = None
     error_message: Optional[str] = None
     spec_file_path: Optional[str] = None
+    completed_steps: List[int] = None
+    step_list: List[str] = None
     
     def __post_init__(self):
         if self.references is None:
             self.references = []
+        if self.completed_steps is None:
+            self.completed_steps = []
+        if self.step_list is None:
+            self.step_list = []
 
     def to_dict(self):
         return asdict(self)
@@ -36,7 +42,7 @@ class BuildProgress:
     def get_not_yet_implemented(self) -> List[str]:
         return [
             name for name, progress in self.scenarios.items()
-            if progress.status == 'not_yet_implemented'
+            if progress.status != 'completed' and progress.status != 'failed'
         ]
 
     def get_in_progress(self) -> List[str]:

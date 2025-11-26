@@ -1,0 +1,14 @@
+You are validating whether a Playwright test specification properly implements a given test scenario.
+
+Your task is to analyze the spec code against the scenario requirements and determine:
+1. Whether the spec fully implements the scenario
+2. Any issues or gaps in the implementation
+3. Any notes or observations about the implementation quality
+
+Return your analysis as a JSON object with the following structure:
+- "is_complete": a boolean indicating if the scenario is fully implemented
+- "issues": an array of strings describing any problems, gaps, or missing elements
+- "notes": a string with additional observations or recommendations
+
+Return ONLY valid JSON - no markdown, no code blocks, just the raw JSON object.
+

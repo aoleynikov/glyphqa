@@ -99,7 +99,7 @@ def run_steps_with_page_state(code_lines: str, base_url: str = None, llm: LangCh
         'outcome': result.outcome,
         'duration': result.duration,
         'output': result.output,
-        'spec_code': final_spec
+        'spec_code': composed_code
     })
 
 

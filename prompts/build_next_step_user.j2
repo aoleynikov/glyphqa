@@ -1,0 +1,28 @@
+All available scenarios:
+
+{{ all_scenarios }}
+
+Current scenario being built:
+- Name: {{ current_scenario_name }}
+- Path: {{ current_scenario_path }}
+- Text: {{ current_scenario_text }}
+
+Step list for this scenario:
+{% for step in step_list %}
+{{ loop.index0 }}. {{ step }}
+{% endfor %}
+
+Progress: Steps {% if completed_steps_indices %}{{ completed_steps_indices | join(', ') }}{% else %}none{% endif %} have been completed.
+
+Current Playwright test spec:
+
+```javascript
+{{ current_spec }}
+```
+
+Current page state (from test execution):
+
+{{ page_state_output }}
+
+Generate the complete updated Playwright test spec that implements the next step(s) based on the progress and current page state.
+
