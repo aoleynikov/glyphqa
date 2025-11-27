@@ -14,6 +14,43 @@ from core.tools.generation import build_next_step
 from core.playwright_env import ensure_playwright_environment
 
 
+def _filter_page_state_output(output: str) -> str:
+    if not output:
+        return ''
+    
+    json_pattern = r'(?:Page State|Interactive Elements|Additional Page State|Final Page State)[:\s]*\n?(\{.*?\})'
+    matches = re.findall(json_pattern, output, re.DOTALL)
+    
+    if matches:
+        return '\n\n'.join(matches)
+    
+    lines = output.split('\n')
+    filtered_lines = []
+    skip_line = False
+    
+    for line in lines:
+        stripped = line.strip().lower()
+        
+        if any(error_keyword in stripped for error_keyword in [
+            'playwright requires', 'node.js', 'error:', 'warning:', 'exception'
+        ]):
+            skip_line = True
+            continue
+        
+        if skip_line and (stripped == '' or not stripped.startswith('at ')):
+            skip_line = False
+        
+        if skip_line:
+            continue
+        
+        if stripped and not any(prefix in stripped for prefix in [
+            'running', 'test outcome', 'failed', 'passed'
+        ]):
+            filtered_lines.append(line)
+    
+    return '\n'.join(filtered_lines).strip()
+
+
 class BuildAgent:
     def __init__(self, config: Config, llm: LangChainLLM, template_manager: TemplateManager, verbose: bool = False):
         self.config = config
@@ -190,7 +227,8 @@ class BuildAgent:
                 return False
             
             current_spec = result.get('spec_code', current_spec)
-            page_state_output = result.get('output', '')
+            raw_output = result.get('output', '')
+            page_state_output = _filter_page_state_output(raw_output)
             
             self._log('Building next step...')
             build_result_json = build_next_step(
