@@ -13,12 +13,6 @@ from core.tools.progress import (
     update_scenario_status_tool,
 )
 from core.tools.generation import generate_next_code, generate_next_code_tool
-from core.tools.reference import (
-    check_scenario_reference,
-    check_scenario_reference_tool,
-    find_all_references,
-    find_all_references_and_update_progress,
-)
 from core.tools.tool_creators import (
     create_playwright_tool,
     create_compose_spec_tool,
@@ -32,8 +26,6 @@ from core.tools.tool_creators import (
     create_get_not_yet_implemented_scenarios_tool,
     create_update_scenario_status_tool,
     create_generate_next_code_tool,
-    create_check_scenario_reference_tool,
-    create_find_all_references_tool,
 )
 
 __all__ = [
@@ -63,10 +55,6 @@ __all__ = [
     'update_scenario_status_tool',
     'generate_next_code',
     'generate_next_code_tool',
-    'check_scenario_reference',
-    'check_scenario_reference_tool',
-    'find_all_references',
-    'find_all_references_and_update_progress',
     'create_playwright_tool',
     'create_compose_spec_tool',
     'create_run_steps_with_page_state_tool',
@@ -79,7 +67,5 @@ __all__ = [
     'create_get_not_yet_implemented_scenarios_tool',
     'create_update_scenario_status_tool',
     'create_generate_next_code_tool',
-    'create_check_scenario_reference_tool',
-    'create_find_all_references_tool',
 ]
 

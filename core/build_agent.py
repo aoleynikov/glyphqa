@@ -196,7 +196,8 @@ class BuildAgent:
         
         while len(completed_steps) < total_steps:
             current_step_index = len(completed_steps)
-            self._log(f'Building step {current_step_index + 1}/{total_steps}')
+            step_description = step_list[current_step_index] if current_step_index < len(step_list) else 'Unknown step'
+            self._log(f'Building step {current_step_index + 1}/{total_steps}: {step_description}')
             self._push_indent()
             
             self._log('Running test to capture page state...')
@@ -216,7 +217,10 @@ class BuildAgent:
             
             outcome = result.get('outcome', 'unknown')
             duration = result.get('duration', 0)
-            self._log(f'Test outcome: {outcome} ({duration:.2f}s)')
+            outcome_msg = f'Test outcome: {outcome} ({duration:.2f}s)'
+            if outcome == 'failed' and current_step_index == 0:
+                outcome_msg += ' (expected - spec is incomplete during incremental build)'
+            self._log(outcome_msg)
             
             if outcome == 'error':
                 self._log('Test execution error', 'error')

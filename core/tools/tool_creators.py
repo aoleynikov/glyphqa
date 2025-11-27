@@ -10,7 +10,6 @@ from core.tools.progress import (
     update_scenario_status_tool,
 )
 from core.tools.generation import generate_next_code_tool
-from core.tools.reference import check_scenario_reference_tool, find_all_references_and_update_progress
 
 
 def create_playwright_tool():
@@ -106,21 +105,5 @@ def create_generate_next_code_tool():
         func=generate_next_code_tool,
         name='generate_next_code',
         description='Generates Playwright test code based on page state and implementation guidance. Takes page_state_output (string) - the output from running a test that captured page state, and next_step_guidance (string) - guidance on what to implement next. Returns a JSON object with the generated code.'
-    )
-
-
-def create_check_scenario_reference_tool():
-    return StructuredTool.from_function(
-        func=check_scenario_reference_tool,
-        name='check_scenario_reference',
-        description='Checks if scenario A references scenario B. A references B when B contains detailed description of how something is done that is only mentioned as an action in A. Takes scenario_a_name (string) and scenario_b_name (string) as inputs. Returns JSON with success (bool), references (bool), and justification (string).'
-    )
-
-
-def create_find_all_references_tool():
-    return StructuredTool.from_function(
-        func=find_all_references_and_update_progress,
-        name='find_all_references',
-        description='Finds all scenario references by iterating through all scenarios and checking which ones reference each other. Updates the build progress object with reference information. Takes verbose (bool, optional) as input. Returns JSON with success (bool), references (dict mapping scenario names to lists of referenced scenarios), total_scenarios (int), and total_references (int).'
     )
 

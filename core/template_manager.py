@@ -17,22 +17,6 @@ class TemplateManager:
         template = self.env.get_template('scenario_summarize.j2')
         return template.render(scenario_text=scenario_text)
     
-    def find_scenario_references(self, scenario, scenario_summaries):
-        template = self.env.get_template('find_scenario_references.j2')
-        return template.render(scenario=scenario, scenario_summaries=scenario_summaries)
-    
-    def is_scenario_required(self, scenario_a, scenario_b):
-        template = self.env.get_template('is_scenario_required.j2')
-        return template.render(scenario_a=scenario_a, scenario_b=scenario_b)
-    
-    def check_scenario_reference_system_prompt(self):
-        template = self.env.get_template('check_scenario_reference_system.j2')
-        return template.render()
-    
-    def check_scenario_reference_user_prompt(self, scenario_a, scenario_b):
-        template = self.env.get_template('check_scenario_reference_user.j2')
-        return template.render(scenario_a=scenario_a, scenario_b=scenario_b)
-    
     def agent_system_prompt(self):
         template = self.env.get_template('agent_system_prompt.j2')
         return template.render()
@@ -97,12 +81,4 @@ class TemplateManager:
             current_spec=current_spec,
             page_state_output=page_state_output
         )
-    
-    def validate_scenario_implementation_system_prompt(self):
-        template = self.env.get_template('validate_scenario_implementation_system.j2')
-        return template.render()
-    
-    def validate_scenario_implementation_user_prompt(self, scenario_text, spec_code):
-        template = self.env.get_template('validate_scenario_implementation_user.j2')
-        return template.render(scenario_text=scenario_text, spec_code=spec_code)
 
