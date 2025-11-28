@@ -200,7 +200,6 @@ class BuildAgent:
             self._log(f'Building step {current_step_index + 1}/{total_steps}: {step_description}')
             self._push_indent()
             
-            self._log('Running test to capture page state...')
             result_json = run_steps_with_page_state(
                 code_lines='',
                 base_url=self.config.connection_url,
@@ -217,10 +216,6 @@ class BuildAgent:
             
             outcome = result.get('outcome', 'unknown')
             duration = result.get('duration', 0)
-            outcome_msg = f'Test outcome: {outcome} ({duration:.2f}s)'
-            if outcome == 'failed' and current_step_index == 0:
-                outcome_msg += ' (expected - spec is incomplete during incremental build)'
-            self._log(outcome_msg)
             
             if outcome == 'error':
                 self._log('Test execution error', 'error')
@@ -234,7 +229,13 @@ class BuildAgent:
             raw_output = result.get('output', '')
             page_state_output = _filter_page_state_output(raw_output)
             
-            self._log('Building next step...')
+            if outcome == 'failed':
+                self._log(f'Captured page state ({duration:.2f}s)')
+            elif outcome == 'passed':
+                self._log(f'Test passed ({duration:.2f}s)')
+            else:
+                self._log(f'Test outcome: {outcome} ({duration:.2f}s)')
+            
             build_result_json = build_next_step(
                 all_scenarios=all_scenarios_text,
                 current_scenario_name=scenario.name,
