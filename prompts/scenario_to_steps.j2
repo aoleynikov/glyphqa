@@ -1,10 +1,21 @@
-Convert the following test scenario into a list of concrete steps that a skilled manual QA engineer would perform. Each step should be a clear, actionable instruction.
+Convert the following test scenario into a condensed list of executable steps. Each step should represent a logical unit of work that can be executed atomically without page state changes between actions.
+
+Step Condensation Principles:
+1. Form operations: Fill all form fields AND submit the form in a single step. Never split form filling and submission into separate steps.
+2. Page transitions: Create a new step only when navigating to a different page, section, or when the page structure meaningfully changes.
+3. Related actions: Group related actions that happen on the same page/view into one step (e.g., "fill login form and submit" is one step, not "fill username", "fill password", "click submit").
+4. Verifications: Include verifications/assertions in the same step as the action that produces what's being verified, when possible.
+5. Bulk operations: When multiple similar actions occur (e.g., filling multiple fields), combine them into a single step.
+
+Examples of good step condensation:
+- "Fill login form with username and password, then submit" (NOT: "fill username", "fill password", "click submit")
+- "Navigate to user management section" (single navigation step)
+- "Create new user by filling form with name, email, role and submitting" (form fill + submit in one step)
+- "Verify dashboard displays and check navigation contains Users and Settings" (verification grouped with context)
 
 Assumptions:
 - You are starting at the system's root URL (no need to open browser or navigate to the base URL)
-- When filling a form with multiple inputs, group all input fields into a single step rather than creating separate steps for each field
-- Form filling should be represented as a single step that combines all field identification and value entry for that form
-- Do not invent specific URLs, selectors, or implementation details. Use generic descriptions rather than specific URLs or element selectors
+- Do not invent specific URLs, selectors, or implementation details. Use generic descriptions.
 
 Return only a JSON array of strings, one step per string. Do not wrap the response in markdown code blocks or any other formatting. Return only the raw JSON array.
 

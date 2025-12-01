@@ -150,9 +150,9 @@ class BuildAgent:
                     if not spec_path.exists():
                         progress.mark_failed(scenario.name, f'Failed to create spec file at {spec_path}')
                         return False
-                else:
-                    progress.mark_failed(scenario.name, f'Spec file does not exist and current_spec_code is empty')
-                    return False
+                    else:
+                        progress.mark_failed(scenario.name, f'Spec file does not exist and current_spec_code is empty')
+                        return False
             
             progress.mark_completed(scenario.name, str(spec_path))
             self._log(f'Saved spec to: {spec_path}', 'success')
