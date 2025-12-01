@@ -4,18 +4,18 @@ import Layout from './components/Layout';
 import Dashboard from './components/Dashboard';
 import Users from './components/Users';
 import Settings from './components/Settings';
+import Tickets from './components/Tickets';
+import TicketForm from './components/TicketForm';
 
 function App() {
   const [user, setUser] = useState(null);
   const [activeTab, setActiveTab] = useState('dashboard');
 
-  // Check for persisted login on app start
   useEffect(() => {
     const savedUser = localStorage.getItem('user');
     if (savedUser) {
       try {
         const userData = JSON.parse(savedUser);
-        // Check if token exists and is not expired
         if (userData.token) {
           setUser(userData);
         } else {
@@ -39,10 +39,9 @@ function App() {
   };
 
   const renderContent = () => {
-    // Check if user has access to the current tab
     const hasAccess = (tab) => {
       if (tab === 'dashboard') return true;
-      if (tab === 'users' || tab === 'settings') return user.role === 'admin';
+      if (tab === 'users' || tab === 'settings' || tab === 'tickets') return user.role === 'admin';
       return true;
     };
 
@@ -58,13 +57,15 @@ function App() {
         return <Users />;
       case 'settings':
         return <Settings user={user} />;
+      case 'tickets':
+        return <Tickets />;
       default:
         return <Dashboard user={user} onTabChange={setActiveTab} />;
     }
   };
 
   if (!user) {
-    return <Login onLoginSuccess={handleLoginSuccess} />;
+    return <TicketForm user={null} />;
   }
 
   return (

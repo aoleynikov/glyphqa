@@ -39,6 +39,7 @@ security = HTTPBearer()
 client = MongoClient(os.getenv("MONGODB_URL", "mongodb://localhost:27017/"))
 db = client.test_app
 users_collection = db.users
+tickets_collection = db.tickets
 
 # Pydantic models
 class UserCreate(BaseModel):
@@ -63,6 +64,22 @@ class Token(BaseModel):
 
 class TokenData(BaseModel):
     username: Optional[str] = None
+
+class TicketCreate(BaseModel):
+    content: str
+
+class TicketResponse(BaseModel):
+    id: str
+    content: str
+    status: str
+    submitter: Optional[str] = None
+    resolved_by: Optional[str] = None
+    resolved_at: Optional[datetime] = None
+    submitted_at: datetime
+    created_at: datetime
+
+class TicketResolve(BaseModel):
+    action: str
 
 # Utility functions
 def verify_password(plain_password, hashed_password):
@@ -109,6 +126,19 @@ def get_current_user(token_data: TokenData = Depends(verify_token)):
             headers={"WWW-Authenticate": "Bearer"},
         )
     return user
+
+def get_optional_user(credentials: Optional[HTTPAuthorizationCredentials] = Depends(HTTPBearer(auto_error=False))):
+    if credentials is None:
+        return None
+    try:
+        payload = jwt.decode(credentials.credentials, SECRET_KEY, algorithms=[ALGORITHM])
+        username: str = payload.get("sub")
+        if username is None:
+            return None
+        user = users_collection.find_one({"username": username})
+        return user
+    except JWTError:
+        return None
 
 # Initialize test users
 def init_test_users():
@@ -256,6 +286,108 @@ async def delete_user(user_id: str, current_user = Depends(get_current_user)):
         )
     
     return {"message": "User deleted successfully"}
+
+@app.post("/tickets", response_model=TicketResponse)
+async def create_ticket(ticket: TicketCreate, current_user = Depends(get_optional_user)):
+    now = datetime.utcnow()
+    ticket_data = {
+        "content": ticket.content,
+        "status": "ToDo",
+        "submitter": current_user["username"] if current_user else None,
+        "resolved_by": None,
+        "resolved_at": None,
+        "submitted_at": now,
+        "created_at": now
+    }
+    
+    result = tickets_collection.insert_one(ticket_data)
+    ticket_data["id"] = str(result.inserted_id)
+    
+    return TicketResponse(**ticket_data)
+
+@app.get("/tickets", response_model=list[TicketResponse])
+async def get_tickets(current_user = Depends(get_current_user)):
+    if current_user["role"] != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin access required"
+        )
+    
+    tickets = []
+    for ticket in tickets_collection.find({}):
+        ticket["id"] = str(ticket["_id"])
+        tickets.append(TicketResponse(**ticket))
+    return tickets
+
+@app.get("/tickets/todo", response_model=TicketResponse)
+async def get_todo_ticket(current_user = Depends(get_current_user)):
+    if current_user["role"] != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin access required"
+        )
+    
+    todo_ticket = tickets_collection.find_one(
+        {"status": "ToDo"},
+        sort=[("submitted_at", 1)]
+    )
+    
+    if not todo_ticket:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No todo tickets available"
+        )
+    
+    todo_ticket["id"] = str(todo_ticket["_id"])
+    return TicketResponse(**todo_ticket)
+
+@app.patch("/tickets/{ticket_id}/resolve", response_model=TicketResponse)
+async def resolve_ticket(ticket_id: str, resolve_action: TicketResolve, current_user = Depends(get_current_user)):
+    if current_user["role"] != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin access required"
+        )
+    
+    if resolve_action.action not in ["accept", "reject"]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Action must be 'accept' or 'reject'"
+        )
+    
+    from bson import ObjectId
+    try:
+        ticket_object_id = ObjectId(ticket_id)
+    except:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid ticket ID format"
+        )
+    
+    ticket = tickets_collection.find_one({"_id": ticket_object_id})
+    if not ticket:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Ticket not found"
+        )
+    
+    status_value = "Accepted" if resolve_action.action == "accept" else "Rejected"
+    now = datetime.utcnow()
+    
+    tickets_collection.update_one(
+        {"_id": ticket_object_id},
+        {
+            "$set": {
+                "status": status_value,
+                "resolved_by": current_user["username"],
+                "resolved_at": now
+            }
+        }
+    )
+    
+    updated_ticket = tickets_collection.find_one({"_id": ticket_object_id})
+    updated_ticket["id"] = str(updated_ticket["_id"])
+    return TicketResponse(**updated_ticket)
 
 @app.get("/health")
 async def health_check():

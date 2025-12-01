@@ -5,6 +5,7 @@ const Layout = ({ user, activeTab, onTabChange, onLogout, children }) => {
     const allTabs = [
         { key: 'dashboard', label: 'Dashboard', roles: ['admin', 'user'] },
         { key: 'users', label: 'Users', roles: ['admin'] },
+        { key: 'tickets', label: 'Tickets', roles: ['admin'] },
         { key: 'settings', label: 'Settings', roles: ['admin'] }
     ];
 
